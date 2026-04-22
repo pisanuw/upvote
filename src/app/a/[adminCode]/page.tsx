@@ -2,7 +2,7 @@
 
 import { AdminClient } from "@/components/admin-client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 
 type AdminData = {
   title: string;
@@ -30,14 +30,15 @@ type AdminData = {
 export default function AdminPage({
   params,
 }: {
-  params: { adminCode: string };
+  params: Promise<{ adminCode: string }>;
 }) {
+  const { adminCode } = use(params);
   const [data, setData] = useState<AdminData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const res = await fetch(`/api/a/${params.adminCode}`, { cache: "no-store" });
+      const res = await fetch(`/api/a/${adminCode}`, { cache: "no-store" });
       const payload = await res.json();
 
       if (!res.ok) {
@@ -49,7 +50,7 @@ export default function AdminPage({
     }
 
     void load();
-  }, [params.adminCode]);
+  }, [adminCode]);
 
   if (error) {
     return (
@@ -79,7 +80,7 @@ export default function AdminPage({
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <AdminClient adminCode={params.adminCode} initial={data} />
+      <AdminClient adminCode={adminCode} initial={data} />
     </main>
   );
 }

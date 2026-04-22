@@ -35,3 +35,8 @@ Complete the steps you can and let me know when I need to do things manually
 2026-04-22T15:52 - Deploy failed: Netlify secrets scanning detected SUPABASE_STORAGE_BUCKET value "attachments" in .env.example and in build output (route paths). The bucket name is literal string "attachments" used as route path segment.
 2026-04-22T16:05 - Clicking "Create topic" causes the application to get stuck.
 2026-04-22T16:06 - Create tests to test the app locally before deploying.
+2026-04-22T16:16 - Getting "Network error. Please try again." when clicking Create Topic locally.
+2026-04-22T16:20 - Terminal error: TLS connection fails with "self-signed certificate in certificate chain" when connecting to Supabase. pg v8 now treats sslmode=require as verify-full. Pool ssl option overridden by connection string sslmode.
+2026-04-22T16:23 - http://localhost:3000/ returns "Cannot GET /". Investigate and fix.
+2026-04-22T16:27 - Created a topic but both participant and admin URLs did not work (using port 3000).
+2026-04-22T16:28 - params is a Promise in Next.js 15+ — /t/[code]/page.tsx and /a/[adminCode]/page.tsx access params synchronously, causing params.code and params.adminCode to be undefined.

@@ -11,8 +11,9 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "test": "vitest run --exclude src/__tests__/smoke*",
+    "test:smoke": "vitest run src/__tests__/smoke*",
+    "test:watch": "vitest --exclude src/__tests__/smoke*"
   },
   "dependencies": {
     "@next-auth/prisma-adapter": "^1.0.7",

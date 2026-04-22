@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { TopicClient } from "@/components/topic-client";
 
 type TopicData = {
@@ -27,14 +27,15 @@ type TopicData = {
 export default function TopicPage({
   params,
 }: {
-  params: { code: string };
+  params: Promise<{ code: string }>;
 }) {
+  const { code } = use(params);
   const [topic, setTopic] = useState<TopicData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
-      const res = await fetch(`/api/t/${params.code}`, { cache: "no-store" });
+      const res = await fetch(`/api/t/${code}`, { cache: "no-store" });
       const payload = await res.json();
 
       if (!res.ok) {
@@ -46,7 +47,7 @@ export default function TopicPage({
     }
 
     void load();
-  }, [params.code]);
+  }, [code]);
 
   if (error) {
     return (
@@ -66,7 +67,7 @@ export default function TopicPage({
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <TopicClient code={params.code} initial={topic} />
+      <TopicClient code={code} initial={topic} />
     </main>
   );
 }

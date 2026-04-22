@@ -17,7 +17,7 @@ import { POST } from "./route";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/auth";
 
-const mockPrisma = prisma as { topic: { create: ReturnType<typeof vi.fn> } };
+const mockPrisma = prisma as unknown as { topic: { create: ReturnType<typeof vi.fn> } };
 const mockAuth = auth as ReturnType<typeof vi.fn>;
 
 function makeRequest(body: unknown) {
