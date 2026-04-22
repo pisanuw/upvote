@@ -20,3 +20,14 @@ already connected to github repo https://github.com/pisanuw/upvote
 
 Complete the steps you can and let me know when I need to do things manually
 2026-04-22T15:12 - Create documented .env.example for environment variables and copy them to .env with the correct values so I can add that file to Netlify
+2026-04-22T15:19 - Give me netlify deploy settings
+2026-04-22T15:22 - Netlify build failed with this message:
+
+3:21:55 PM: Plugin "@netlify/plugin-nextjs" failed
+3:21:55 PM: Error: Your publish directory cannot be the same as the base directory of your site. Please check your build settings
+
+(Full Netlify log included by user in chat)
+2026-04-22T15:30 - Still got error
+
+3:24:28 PM: Plugin "@netlify/plugin-nextjs" failed
+3:24:28 PM: Error: Your publish directory was not found at: /opt/build/repo/.netlify/static. Please check your build settings
