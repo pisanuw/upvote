@@ -1,6 +1,6 @@
 [build]
-  command = "mkdir -p .netlify/static && npm run build"
-  publish = ".netlify/static"
+  command = "npm run build"
+  publish = ".next"
 
 [build.environment]
   NODE_VERSION = "20"
