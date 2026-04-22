@@ -32,3 +32,4 @@ Complete the steps you can and let me know when I need to do things manually
 3:24:28 PM: Plugin "@netlify/plugin-nextjs" failed
 3:24:28 PM: Error: Your publish directory was not found at: /opt/build/repo/.netlify/static. Please check your build settings
 2026-04-22T15:32 - Deploying on Netlify fails with: Plugin "@netlify/plugin-nextjs" failed - Error: Your publish directory does not contain expected Next.js build output. Please check your build settings
+2026-04-22T15:52 - Deploy failed: Netlify secrets scanning detected SUPABASE_STORAGE_BUCKET value "attachments" in .env.example and in build output (route paths). The bucket name is literal string "attachments" used as route path segment.
