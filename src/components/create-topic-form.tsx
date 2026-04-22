@@ -21,22 +21,26 @@ export function CreateTopicForm({ isSignedIn }: { isSignedIn: boolean }) {
     setError(null);
     setResult(null);
 
-    const res = await fetch("/api/topics", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, description, requiresAuthForVoting }),
-    });
+    try {
+      const res = await fetch("/api/topics", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title, description, requiresAuthForVoting }),
+      });
 
-    const data = await res.json();
+      const data = await res.json();
 
-    if (!res.ok) {
-      setError(data.error || "Failed to create topic.");
+      if (!res.ok) {
+        setError(data.error || "Failed to create topic.");
+        return;
+      }
+
+      setResult(data);
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    setResult(data);
-    setLoading(false);
   }
 
   return (
