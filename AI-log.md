@@ -40,3 +40,4 @@ Complete the steps you can and let me know when I need to do things manually
 2026-04-22T16:23 - http://localhost:3000/ returns "Cannot GET /". Investigate and fix.
 2026-04-22T16:27 - Created a topic but both participant and admin URLs did not work (using port 3000).
 2026-04-22T16:28 - params is a Promise in Next.js 15+ — /t/[code]/page.tsx and /a/[adminCode]/page.tsx access params synchronously, causing params.code and params.adminCode to be undefined.
+2026-04-23 - Need a superadmin URL where all topics are visible with ability to delete topics and/or comments under them.
