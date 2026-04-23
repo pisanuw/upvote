@@ -35,7 +35,10 @@ export function TopicClient({ code, initial }: { code: string; initial: TopicDat
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const sortedComments = useMemo(() => topic.comments, [topic.comments]);
+  const sortedComments = useMemo(
+    () => [...topic.comments].sort((a, b) => b.score - a.score),
+    [topic.comments]
+  );
 
   async function submitComment(e: React.FormEvent) {
     e.preventDefault();
