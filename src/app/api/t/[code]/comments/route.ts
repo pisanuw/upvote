@@ -1,3 +1,4 @@
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { getAttachmentBucket, getSupabaseAdmin } from "@/lib/supabase-admin";
 import { deleteExpiredTopicIfNeeded } from "@/lib/topic";
@@ -22,6 +23,13 @@ export async function POST(
 
   if (topic.isLocked) {
     return Response.json({ error: "Topic is locked." }, { status: 423 });
+  }
+
+  if (topic.requiresAuthForVoting) {
+    const session = await auth();
+    if (!session?.user?.id) {
+      return Response.json({ error: "Sign in is required to comment on this topic." }, { status: 401 });
+    }
   }
 
   const formData = await request.formData();

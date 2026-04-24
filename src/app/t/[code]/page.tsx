@@ -1,73 +1,78 @@
-"use client";
-
-import { use, useEffect, useState } from "react";
+import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
+import { deleteExpiredTopicIfNeeded } from "@/lib/topic";
 import { TopicClient } from "@/components/topic-client";
+import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
 
-type TopicData = {
-  title: string;
-  description: string | null;
-  requiresAuthForVoting: boolean;
-  isLocked: boolean;
-  comments: Array<{
-    id: string;
-    authorName: string;
-    body: string;
-    createdAt: string;
-    score: number;
-    myVote: number | null;
-    attachments: Array<{
-      id: string;
-      fileName: string;
-      mimeType: string;
-      sizeBytes: number;
-    }>;
-  }>;
-};
-
-export default function TopicPage({
+export default async function TopicPage({
   params,
 }: {
   params: Promise<{ code: string }>;
 }) {
-  const { code } = use(params);
-  const [topic, setTopic] = useState<TopicData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { code } = await params;
 
-  useEffect(() => {
-    async function load() {
-      const res = await fetch(`/api/t/${code}`, { cache: "no-store" });
-      const payload = await res.json();
+  const topic = await prisma.topic.findUnique({
+    where: { shortCode: code },
+    include: {
+      comments: {
+        orderBy: { createdAt: "desc" },
+        include: {
+          attachments: {
+            select: { id: true, fileName: true, mimeType: true, sizeBytes: true },
+          },
+          votes: {
+            select: { value: true, voterKey: true, voterUserId: true },
+          },
+        },
+      },
+    },
+  });
 
-      if (!res.ok) {
-        setError(payload.error || "Topic not found.");
-        return;
-      }
+  if (!topic) notFound();
 
-      setTopic(payload);
-    }
+  if (await deleteExpiredTopicIfNeeded(topic)) notFound();
 
-    void load();
-  }, [code]);
+  const session = await auth();
+  const cookieStore = await cookies();
+  const anonKey = cookieStore.get("upvote_anon_id")?.value;
+  const currentUserId = session?.user?.id ?? null;
+  const canSeeComments = !topic.requiresAuthForVoting || !!currentUserId;
 
-  if (error) {
-    return (
-      <main className="mx-auto w-full max-w-3xl p-6">
-        <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">{error}</p>
-      </main>
-    );
-  }
+  const data = {
+    title: topic.title,
+    description: topic.description,
+    requiresAuthForVoting: topic.requiresAuthForVoting,
+    isLocked: topic.isLocked,
+    isSignedIn: !!currentUserId,
+    comments: canSeeComments
+      ? topic.comments.map((comment) => {
+          const score = comment.votes.reduce((sum, v) => sum + v.value, 0);
+          const myVote =
+            comment.votes.find((v) =>
+              currentUserId
+                ? v.voterUserId === currentUserId
+                : anonKey
+                  ? v.voterKey === anonKey
+                  : false,
+            )?.value ?? null;
 
-  if (!topic) {
-    return (
-      <main className="mx-auto w-full max-w-3xl p-6">
-        <p className="rounded-xl border border-slate-200 bg-white p-4 text-slate-700">Loading topic...</p>
-      </main>
-    );
-  }
+          return {
+            id: comment.id,
+            authorName: comment.authorName,
+            body: comment.body,
+            createdAt: comment.createdAt.toISOString(),
+            score,
+            myVote,
+            attachments: comment.attachments,
+          };
+        })
+      : [],
+  };
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <TopicClient code={code} initial={topic} />
+      <TopicClient code={code} initial={data} />
     </main>
   );
 }

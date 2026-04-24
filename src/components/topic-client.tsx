@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { SignInPanel } from "@/components/signin-panel";
 
 type Attachment = {
   id: string;
@@ -24,6 +25,7 @@ type TopicData = {
   description: string | null;
   requiresAuthForVoting: boolean;
   isLocked: boolean;
+  isSignedIn: boolean;
   comments: CommentData[];
 };
 
@@ -107,6 +109,11 @@ export function TopicClient({ code, initial }: { code: string; initial: TopicDat
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
           This topic is currently locked by admin. New comments are disabled.
         </div>
+      ) : topic.requiresAuthForVoting && !topic.isSignedIn ? (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-blue-900">
+          <p className="mb-3 font-semibold">Sign in to add a comment.</p>
+          <SignInPanel isSignedIn={false} callbackUrl={`/t/${code}`} />
+        </div>
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-semibold text-slate-900">Add a comment</h2>
@@ -145,7 +152,7 @@ export function TopicClient({ code, initial }: { code: string; initial: TopicDat
 
       {error ? <p className="text-sm text-rose-700">{error}</p> : null}
 
-      <section className="space-y-4">
+      {topic.requiresAuthForVoting && !topic.isSignedIn ? null : <section className="space-y-4">
         {sortedComments.map((comment) => (
           <article key={comment.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
@@ -199,7 +206,7 @@ export function TopicClient({ code, initial }: { code: string; initial: TopicDat
             No comments yet. Be first.
           </p>
         ) : null}
-      </section>
+      </section>}
     </div>
   );
 }

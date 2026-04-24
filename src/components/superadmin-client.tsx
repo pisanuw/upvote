@@ -88,6 +88,11 @@ export function SuperadminClient({
                     /t/{topic.shortCode}
                   </a>
                 </span>
+                <span>
+                  <a className="text-violet-700 underline" href={`/a/${topic.adminCode}`} target="_blank">
+                    /a/{topic.adminCode}
+                  </a>
+                </span>
                 <span>{topic.commentCount} comment{topic.commentCount !== 1 ? "s" : ""}</span>
                 {topic.isLocked ? <span className="font-semibold text-amber-700">Locked</span> : null}
                 {topic.requiresAuthForVoting ? <span className="font-semibold text-blue-700">Auth voting</span> : null}

@@ -2,7 +2,13 @@
 
 import { signIn, signOut } from "next-auth/react";
 
-export function SignInPanel({ isSignedIn }: { isSignedIn: boolean }) {
+export function SignInPanel({
+  isSignedIn,
+  callbackUrl = "/",
+}: {
+  isSignedIn: boolean;
+  callbackUrl?: string;
+}) {
   if (isSignedIn) {
     return (
       <button
@@ -19,7 +25,7 @@ export function SignInPanel({ isSignedIn }: { isSignedIn: boolean }) {
     <div className="flex gap-2">
       <button
         type="button"
-        onClick={() => signIn("google")}
+        onClick={() => signIn("google", { callbackUrl })}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
       >
         Google sign-in
@@ -29,7 +35,7 @@ export function SignInPanel({ isSignedIn }: { isSignedIn: boolean }) {
         onClick={() => {
           const email = window.prompt("Enter your email for a magic link");
           if (!email) return;
-          void signIn("email", { email, callbackUrl: "/" });
+          void signIn("email", { email, callbackUrl });
         }}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
       >

@@ -24,15 +24,7 @@ export async function GET(
             },
           },
           votes: {
-            include: {
-              voterUser: {
-                select: {
-                  id: true,
-                  name: true,
-                  email: true,
-                },
-              },
-            },
+            select: { value: true, voterKey: true, voterUserId: true },
           },
         },
       },
@@ -52,13 +44,16 @@ export async function GET(
   const anonKey = cookieStore.get("upvote_anon_id")?.value;
   const currentUserId = session?.user?.id ?? null;
 
+  const canSeeComments = !topic.requiresAuthForVoting || !!currentUserId;
+
   return Response.json({
     id: topic.id,
     title: topic.title,
     description: topic.description,
     requiresAuthForVoting: topic.requiresAuthForVoting,
     isLocked: topic.isLocked,
-    comments: topic.comments.map((comment: (typeof topic.comments)[number]) => {
+    isSignedIn: !!currentUserId,
+    comments: canSeeComments ? topic.comments.map((comment: (typeof topic.comments)[number]) => {
       const score = comment.votes.reduce(
         (sum: number, vote: (typeof comment.votes)[number]) => sum + vote.value,
         0,
@@ -82,6 +77,6 @@ export async function GET(
         myVote,
         attachments: comment.attachments,
       };
-    }),
+    }) : [],
   });
 }
