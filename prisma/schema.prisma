@@ -27,6 +27,9 @@ model Comment {
   id          String       @id @default(cuid())
   topicId     String
   topic       Topic        @relation(fields: [topicId], references: [id], onDelete: Cascade)
+  parentId    String?
+  parent      Comment?     @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies     Comment[]    @relation("CommentReplies")
   authorName  String
   body        String
   createdAt   DateTime     @default(now())
@@ -35,6 +38,7 @@ model Comment {
   votes       Vote[]
 
   @@index([topicId, createdAt])
+  @@index([parentId])
 }
 
 model Vote {

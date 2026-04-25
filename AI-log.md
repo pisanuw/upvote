@@ -41,3 +41,12 @@ Complete the steps you can and let me know when I need to do things manually
 2026-04-22T16:27 - Created a topic but both participant and admin URLs did not work (using port 3000).
 2026-04-22T16:28 - params is a Promise in Next.js 15+ — /t/[code]/page.tsx and /a/[adminCode]/page.tsx access params synchronously, causing params.code and params.adminCode to be undefined.
 2026-04-23 - Need a superadmin URL where all topics are visible with ability to delete topics and/or comments under them.
+2026-04-25 - Add threaded comments (reply to a comment, Reddit-like). Max 4 visual indent levels, then "Continue this thread →". Replies sorted by score. Vote toggle (same direction removes vote). ↑/↓ arrows + score + speech bubble reply icon at bottom of each comment.
+2026-04-25 - Add comments to .env file for each variable.
+2026-04-25 - Replace "Add a comment" section on topic with a small inline "reply" link like comments have.
+2026-04-25 - Move topic reply link next to "Open voting" text. Always show Google sign-in + magic link buttons top-right. Logged-in users see Reddit-style avatar menu with editable username and logout.
+2026-04-25 - Remove "Open voting" label; only show indicator when sign-in is required to vote.
+2026-04-25 - Hide "Sign-in required to vote" badge when user is already signed in.
+2026-04-25 - Implement all suggestions except #5: comment collapse, timestamp tooltips, char counter, sort toggle, share button, expiry indicator, email notification on new comment, admin delete comments, admin participant URL, optimistic voting, rate limiting, robots.txt + noindex.
+2026-04-25 - Google profile image not displaying in navbar avatar; fix or use generic fallback. Also remove username text from account menu button — show circle only. Max 4 visual indent levels, then "Continue this thread →". Replies sorted by score. Vote toggle (same direction removes vote). ↑/↓ arrows + score + speech bubble reply icon at bottom of each comment.
+2026-04-25T08:58 - Continuing previous session: completing AdminClient (delete comment + prominent participant URL) and robots.txt + noindex meta tags.

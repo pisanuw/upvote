@@ -4,19 +4,27 @@ import { deleteExpiredTopicIfNeeded } from "@/lib/topic";
 import { TopicClient } from "@/components/topic-client";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
+
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function TopicPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ code: string }>;
+  searchParams: Promise<{ root?: string }>;
 }) {
   const { code } = await params;
+  const { root: rootCommentId } = await searchParams;
 
   const topic = await prisma.topic.findUnique({
     where: { shortCode: code },
     include: {
       comments: {
-        orderBy: { createdAt: "desc" },
+        orderBy: { createdAt: "asc" },
         include: {
           attachments: {
             select: { id: true, fileName: true, mimeType: true, sizeBytes: true },
@@ -45,6 +53,7 @@ export default async function TopicPage({
     requiresAuthForVoting: topic.requiresAuthForVoting,
     isLocked: topic.isLocked,
     isSignedIn: !!currentUserId,
+    lastActivityAt: topic.lastActivityAt.toISOString(),
     comments: canSeeComments
       ? topic.comments.map((comment) => {
           const score = comment.votes.reduce((sum, v) => sum + v.value, 0);
@@ -59,6 +68,7 @@ export default async function TopicPage({
 
           return {
             id: comment.id,
+            parentId: comment.parentId,
             authorName: comment.authorName,
             body: comment.body,
             createdAt: comment.createdAt.toISOString(),
@@ -72,7 +82,7 @@ export default async function TopicPage({
 
   return (
     <main className="mx-auto w-full max-w-3xl p-6">
-      <TopicClient code={code} initial={data} />
+      <TopicClient code={code} initial={data} rootCommentId={rootCommentId ?? null} />
     </main>
   );
 }

@@ -7,7 +7,8 @@ import { z } from "zod";
 
 const bodySchema = z.object({
   commentId: z.string().min(1),
-  value: z.union([z.literal(1), z.literal(-1)]),
+  // 1 = upvote, -1 = downvote, 0 = remove vote (toggle off)
+  value: z.union([z.literal(1), z.literal(-1), z.literal(0)]),
 });
 
 export async function POST(
@@ -40,10 +41,7 @@ export async function POST(
   }
 
   const comment = await prisma.comment.findFirst({
-    where: {
-      id: parsed.data.commentId,
-      topicId: topic.id,
-    },
+    where: { id: parsed.data.commentId, topicId: topic.id },
   });
 
   if (!comment) {
@@ -51,7 +49,9 @@ export async function POST(
   }
 
   const cookieStore = await cookies();
-  let voterKey = session?.user?.id ? `user_${session.user.id}` : cookieStore.get("upvote_anon_id")?.value;
+  let voterKey = session?.user?.id
+    ? `user_${session.user.id}`
+    : cookieStore.get("upvote_anon_id")?.value;
 
   if (!voterKey) {
     voterKey = createAnonVoterKey();
@@ -64,34 +64,34 @@ export async function POST(
     });
   }
 
-  await prisma.vote.upsert({
-    where: {
-      commentId_voterKey: {
-        commentId: parsed.data.commentId,
-        voterKey,
-      },
-    },
-    update: {
-      value: parsed.data.value,
-      voterUserId: session?.user?.id ?? null,
-    },
-    create: {
-      commentId: parsed.data.commentId,
-      voterKey,
-      voterUserId: session?.user?.id ?? null,
-      value: parsed.data.value,
-    },
-  });
+  const { value, commentId } = parsed.data;
+
+  if (value === 0) {
+    await prisma.vote.deleteMany({
+      where: { commentId, voterKey },
+    });
+  } else {
+    await prisma.vote.upsert({
+      where: { commentId_voterKey: { commentId, voterKey } },
+      update: { value, voterUserId: session?.user?.id ?? null },
+      create: { commentId, voterKey, voterUserId: session?.user?.id ?? null, value },
+    });
+  }
 
   await prisma.topic.update({
     where: { id: topic.id },
     data: { lastActivityAt: new Date() },
   });
 
-  const score = await prisma.vote.aggregate({
-    where: { commentId: parsed.data.commentId },
+  const agg = await prisma.vote.aggregate({
+    where: { commentId },
     _sum: { value: true },
   });
 
-  return Response.json({ score: score._sum.value ?? 0 });
+  const myVote =
+    value === 0
+      ? null
+      : value;
+
+  return Response.json({ score: agg._sum.value ?? 0, myVote });
 }

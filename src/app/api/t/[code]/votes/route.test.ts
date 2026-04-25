@@ -12,6 +12,7 @@ vi.mock("@/lib/prisma", () => ({
     },
     vote: {
       upsert: vi.fn(),
+      deleteMany: vi.fn(),
       aggregate: vi.fn(),
     },
   },
@@ -33,6 +34,7 @@ import { cookies } from "next/headers";
 const mockTopicFindUnique = prisma.topic.findUnique as ReturnType<typeof vi.fn>;
 const mockCommentFindFirst = prisma.comment.findFirst as ReturnType<typeof vi.fn>;
 const mockVoteUpsert = prisma.vote.upsert as ReturnType<typeof vi.fn>;
+const mockVoteDeleteMany = prisma.vote.deleteMany as ReturnType<typeof vi.fn>;
 const mockVoteAggregate = prisma.vote.aggregate as ReturnType<typeof vi.fn>;
 const mockTopicUpdate = prisma.topic.update as ReturnType<typeof vi.fn>;
 const mockAuth = auth as ReturnType<typeof vi.fn>;
@@ -62,12 +64,10 @@ function makeTopic(overrides = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockAuth.mockResolvedValue(null);
-  mockCookies.mockResolvedValue({
-    get: () => undefined,
-    set: vi.fn(),
-  });
+  mockCookies.mockResolvedValue({ get: () => undefined, set: vi.fn() });
   mockTopicUpdate.mockResolvedValue({});
   mockVoteUpsert.mockResolvedValue({});
+  mockVoteDeleteMany.mockResolvedValue({});
   mockVoteAggregate.mockResolvedValue({ _sum: { value: 1 } });
 });
 
@@ -89,33 +89,29 @@ describe("POST /api/t/[code]/votes", () => {
   it("returns 404 when topic is not found", async () => {
     mockTopicFindUnique.mockResolvedValue(null);
     const { request, context } = makeRequest("notfound", { commentId: "c1", value: 1 });
-    const res = await POST(request, context);
-    expect(res.status).toBe(404);
+    expect((await POST(request, context)).status).toBe(404);
   });
 
   it("returns 404 when topic is expired", async () => {
     mockTopicFindUnique.mockResolvedValue(makeTopic({ lastActivityAt: new Date(0) }));
     const { request, context } = makeRequest("oldcode", { commentId: "c1", value: 1 });
-    const res = await POST(request, context);
-    expect(res.status).toBe(404);
+    expect((await POST(request, context)).status).toBe(404);
   });
 
   it("returns 401 when auth-required topic and user is not signed in", async () => {
     mockTopicFindUnique.mockResolvedValue(makeTopic({ requiresAuthForVoting: true }));
     const { request, context } = makeRequest("authcode", { commentId: "c1", value: 1 });
-    const res = await POST(request, context);
-    expect(res.status).toBe(401);
+    expect((await POST(request, context)).status).toBe(401);
   });
 
   it("returns 404 when comment is not found", async () => {
     mockTopicFindUnique.mockResolvedValue(makeTopic());
     mockCommentFindFirst.mockResolvedValue(null);
     const { request, context } = makeRequest("abc123", { commentId: "c-missing", value: 1 });
-    const res = await POST(request, context);
-    expect(res.status).toBe(404);
+    expect((await POST(request, context)).status).toBe(404);
   });
 
-  it("records upvote and returns score", async () => {
+  it("records upvote and returns score and myVote", async () => {
     mockTopicFindUnique.mockResolvedValue(makeTopic());
     mockCommentFindFirst.mockResolvedValue({ id: "c1", topicId: "topic-id-1" });
     mockVoteAggregate.mockResolvedValue({ _sum: { value: 3 } });
@@ -126,10 +122,11 @@ describe("POST /api/t/[code]/votes", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.score).toBe(3);
+    expect(data.myVote).toBe(1);
     expect(mockVoteUpsert).toHaveBeenCalledOnce();
   });
 
-  it("records downvote and returns score", async () => {
+  it("records downvote and returns score and myVote", async () => {
     mockTopicFindUnique.mockResolvedValue(makeTopic());
     mockCommentFindFirst.mockResolvedValue({ id: "c1", topicId: "topic-id-1" });
     mockVoteAggregate.mockResolvedValue({ _sum: { value: -1 } });
@@ -140,6 +137,22 @@ describe("POST /api/t/[code]/votes", () => {
     expect(res.status).toBe(200);
     const data = await res.json();
     expect(data.score).toBe(-1);
+    expect(data.myVote).toBe(-1);
+  });
+
+  it("value=0 deletes the vote and returns myVote: null", async () => {
+    mockTopicFindUnique.mockResolvedValue(makeTopic());
+    mockCommentFindFirst.mockResolvedValue({ id: "c1", topicId: "topic-id-1" });
+    mockVoteAggregate.mockResolvedValue({ _sum: { value: 0 } });
+
+    const { request, context } = makeRequest("abc123", { commentId: "c1", value: 0 });
+    const res = await POST(request, context);
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.myVote).toBeNull();
+    expect(mockVoteDeleteMany).toHaveBeenCalledOnce();
+    expect(mockVoteUpsert).not.toHaveBeenCalled();
   });
 
   it("uses authenticated user id as voter key when signed in", async () => {
