@@ -123,5 +123,6 @@ describe("MarkdownContent – plain text compatibility", () => {
     // remark-breaks turns single newlines into <br> elements
     expect(html).toContain("line one");
     expect(html).toContain("line two");
+    expect(html).toContain("<br");
   });
 });

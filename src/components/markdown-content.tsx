@@ -1,18 +1,30 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import rehypeSanitize from "rehype-sanitize";
+import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import rehypeExternalLinks from "rehype-external-links";
 import type { Components } from "react-markdown";
+
+// Extend the default sanitize schema to allow the rel/target attributes
+// that rehypeExternalLinks adds to anchor elements.
+const sanitizeSchema = {
+  ...defaultSchema,
+  attributes: {
+    ...defaultSchema.attributes,
+    a: [...(defaultSchema.attributes?.a ?? []), "rel", "target"],
+  },
+};
 
 const markdownComponents: Components = {
   p: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
-  a: ({ href, children, ...props }) => (
+  // Only forward href, target, and rel — avoid spreading unknown props from hast
+  a: ({ href, target, rel, children }) => (
     <a
       href={href}
-      {...props}
+      target={target as string | undefined}
+      rel={rel as string | undefined}
       className="text-teal-700 underline hover:text-teal-600"
     >
       {children}
@@ -26,17 +38,15 @@ const markdownComponents: Components = {
       {children}
     </pre>
   ),
-  code: ({ children, className }) => (
-    <code
-      className={
-        className
-          ? className
-          : "rounded bg-slate-100 px-1 py-0.5 text-[0.875em] font-mono"
-      }
-    >
-      {children}
-    </code>
-  ),
+  code: ({ children, className }) => {
+    // Only allow language-* classes set by the remark code-block parser;
+    // strip anything else to prevent class-based injection.
+    const safeClass =
+      typeof className === "string" && /^language-[a-z0-9-]+$/i.test(className)
+        ? className
+        : "rounded bg-slate-100 px-1 py-0.5 text-[0.875em] font-mono";
+    return <code className={safeClass}>{children}</code>;
+  },
   blockquote: ({ children }) => (
     <blockquote className="mt-2 border-l-4 border-slate-300 pl-3 text-slate-600 italic">
       {children}
@@ -48,12 +58,15 @@ const markdownComponents: Components = {
   hr: () => <hr className="my-3 border-slate-200" />,
 };
 
+// rehypeExternalLinks runs first (adds target/rel), then rehypeSanitize runs
+// last so it catches any output from previous plugins. The sanitize schema is
+// extended to allow the safe rel/target attributes on anchor elements.
 const rehypePlugins = [
-  rehypeSanitize,
   [
     rehypeExternalLinks,
     { target: "_blank", rel: ["nofollow", "noopener", "noreferrer"] },
   ],
+  [rehypeSanitize, sanitizeSchema],
 ] as Parameters<typeof ReactMarkdown>[0]["rehypePlugins"];
 
 export function MarkdownContent({
