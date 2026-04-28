@@ -136,7 +136,7 @@ function BodyTextarea({ value, onChange, placeholder }: {
           </span>
         )}
       </div>
-      <p className="mt-1 text-xs text-slate-400">Supports Markdown</p>
+      <p className="mt-1 text-xs text-slate-400">Supports Markdown — **bold**, _italic_, [links](url), lists, `code`</p>
     </div>
   );
 }

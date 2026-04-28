@@ -15,6 +15,9 @@ const sanitizeSchema = {
   },
 };
 
+// CSS class for inline code (no language prefix)
+const INLINE_CODE_CLASS = "rounded bg-slate-100 px-1 py-0.5 text-[0.875em] font-mono";
+
 const markdownComponents: Components = {
   p: ({ children }) => <p className="mt-2 first:mt-0">{children}</p>,
   strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
@@ -44,7 +47,7 @@ const markdownComponents: Components = {
     const safeClass =
       typeof className === "string" && /^language-[a-z0-9-]+$/i.test(className)
         ? className
-        : "rounded bg-slate-100 px-1 py-0.5 text-[0.875em] font-mono";
+        : INLINE_CODE_CLASS;
     return <code className={safeClass}>{children}</code>;
   },
   blockquote: ({ children }) => (
