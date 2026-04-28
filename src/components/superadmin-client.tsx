@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { MarkdownContent } from "@/components/markdown-content";
 
 type SuperComment = {
   id: string;
@@ -116,7 +117,7 @@ export function SuperadminClient({
                 <li key={comment.id} className="flex items-start justify-between gap-3 px-5 py-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-slate-800">{comment.authorName}</p>
-                    <p className="mt-0.5 line-clamp-2 text-sm text-slate-600">{comment.body}</p>
+                    <MarkdownContent content={comment.body} className="mt-0.5 line-clamp-2 text-sm text-slate-600" />
                     <p className="mt-0.5 text-xs text-slate-400">
                       {comment.voteCount} vote{comment.voteCount !== 1 ? "s" : ""}
                       {comment.attachmentCount > 0 ? ` · ${comment.attachmentCount} file${comment.attachmentCount !== 1 ? "s" : ""}` : ""}

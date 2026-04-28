@@ -71,6 +71,7 @@ export function CreateTopicForm({ isSignedIn }: { isSignedIn: boolean }) {
           onChange={(e) => setDescription(e.target.value)}
           maxLength={3000}
         />
+        <p className="text-xs text-slate-400">Supports Markdown</p>
       </div>
 
       <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-900">

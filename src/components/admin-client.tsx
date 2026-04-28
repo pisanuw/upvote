@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { MarkdownContent } from "@/components/markdown-content";
 
 type VoteView = {
   value: number;
@@ -121,7 +122,7 @@ export function AdminClient({ adminCode, initial }: { adminCode: string; initial
     <div className="space-y-8">
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <h1 className="text-3xl font-bold text-slate-900">Admin: {data.title}</h1>
-        {data.description ? <p className="mt-3 whitespace-pre-wrap text-slate-700">{data.description}</p> : null}
+        {data.description ? <MarkdownContent content={data.description} className="mt-3 text-slate-700" /> : null}
 
         <div className="mt-5">
           <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
@@ -189,7 +190,7 @@ export function AdminClient({ adminCode, initial }: { adminCode: string; initial
                 </button>
               </div>
             </div>
-            <p className="mt-3 whitespace-pre-wrap text-slate-700">{comment.body}</p>
+            <MarkdownContent content={comment.body} className="mt-3 text-slate-700" />
 
             {data.requiresAuthForVoting ? (
               <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">

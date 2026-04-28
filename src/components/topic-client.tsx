@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { SignInPanel } from "@/components/signin-panel";
+import { MarkdownContent } from "@/components/markdown-content";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -119,20 +120,23 @@ function BodyTextarea({ value, onChange, placeholder }: {
   const warn = value.length >= CHAR_WARN;
 
   return (
-    <div className="relative">
-      <textarea
-        className="min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-        placeholder={placeholder}
-        required
-        maxLength={CHAR_LIMIT}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      {warn && (
-        <span className={`absolute bottom-2 right-2 text-xs tabular-nums ${remaining <= 100 ? "text-rose-500" : "text-amber-500"}`}>
-          {remaining}
-        </span>
-      )}
+    <div>
+      <div className="relative">
+        <textarea
+          className="min-h-20 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+          placeholder={placeholder}
+          required
+          maxLength={CHAR_LIMIT}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        {warn && (
+          <span className={`absolute bottom-2 right-2 text-xs tabular-nums ${remaining <= 100 ? "text-rose-500" : "text-amber-500"}`}>
+            {remaining}
+          </span>
+        )}
+      </div>
+      <p className="mt-1 text-xs text-slate-400">Supports Markdown</p>
     </div>
   );
 }
@@ -283,7 +287,7 @@ function CommentNode({
             {/* Body — hidden when collapsed */}
             {!isCollapsed && (
               <>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-slate-800">{comment.body}</p>
+                <MarkdownContent content={comment.body} className="mt-1 text-sm text-slate-800" />
 
                 {comment.attachments.length > 0 && (
                   <ul className="mt-2 space-y-0.5 text-xs">
@@ -534,7 +538,7 @@ export function TopicClient({
       <section className="rounded-2xl border border-slate-200 bg-white/90 p-6 shadow-sm">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">{topic.title}</h1>
         {topic.description && (
-          <p className="mt-3 whitespace-pre-wrap text-slate-700">{topic.description}</p>
+          <MarkdownContent content={topic.description} className="mt-3 text-slate-700" />
         )}
 
         {/* Status row */}
