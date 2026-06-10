@@ -27,3 +27,5 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-10 [decision] Presentation audit: added MIT LICENSE (+package.json license), README what/status/run block + license/contributing sections, GitHub description/topics/homepage set. README claims verified true.
 
 2026-06-10 [code] Adopted Conventional Commits: documented in AGENTS.md, added .githooks/commit-msg enforcement. Single squashed Initial commit noted (not rewritten); future work incremental.
+
+2026-06-10 [code] Fresh-clone test found npm install failing: postinstall prisma generate threw on unset DATABASE_URL. Fixed prisma.config.ts to read env tolerantly (url: process.env.DATABASE_URL ?? "").
