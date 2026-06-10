@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Secret-scan staged changes before every commit.
+# Activated via: git config core.hooksPath .githooks
+# Requires gitleaks (https://github.com/gitleaks/gitleaks). Install: brew install gitleaks
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "pre-commit: gitleaks not found on PATH — skipping secret scan." >&2
+  echo "            Install with: brew install gitleaks" >&2
+  exit 0
+fi
+
+if ! gitleaks protect --staged --no-banner --redact; then
+  echo >&2
+  echo "pre-commit: gitleaks flagged a potential secret in your staged changes." >&2
+  echo "            Remove it, or if it is a false positive add an allowlist entry" >&2
+  echo "            in .gitleaks.toml, then commit again." >&2
+  exit 1
+fi

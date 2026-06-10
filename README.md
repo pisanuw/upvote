@@ -69,6 +69,19 @@ npm run dev
 
 Open http://localhost:3000
 
+## Git Hooks
+
+This repo ships a pre-commit hook that scans staged changes for secrets with
+[gitleaks](https://github.com/gitleaks/gitleaks). Enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+brew install gitleaks   # if not already installed
+```
+
+The hook is a no-op (with a warning) when gitleaks is not installed, so it never
+blocks commits unexpectedly.
+
 ## Environment Variables
 
 See `.env.example` for all variables.

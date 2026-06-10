@@ -30,8 +30,23 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files: ignore all variants by default.
+# Exceptions: the placeholder template (.env.example) and the
+# intentionally-committed public-key-encrypted bundle (.env.asc).
 .env
+.env.*
+!.env.example
+!.env.asc
+
+# secrets / key material (never commit plaintext)
+*.key
+*.gpg
+*.p12
+*.pfx
+id_rsa
+id_ed25519
+.gnupg*/
+AI-log.md
 
 # vercel
 .vercel
