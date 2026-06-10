@@ -17,3 +17,7 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-10 [decision] Security upgrade: next 16.2.4->16.2.9 (+eslint-config-next), fast-uri override ^3.1.2. Clears both high advisories. Verified: tsc, 93 tests, next build, lint all pass.
 
 2026-06-10 [note] Remaining audit items all moderate/low with fixAvailable=false (no safe fix): postcss/next moderate, next-auth (needs v5 major), nodemailer (no patch; vectors not user-controlled), dev-only Prisma tooling. Deferred.
+
+2026-06-10 [code] CI gates (was NO CI): added .github/workflows/ci.yml (push+PR) running npm ci/lint/typecheck/test/build, added typecheck script, README badge. Build uses dummy env (data routes dynamic).
+
+2026-06-10 [note] CI gate verified fail-closed locally: an injected failing test made npm test exit 1; removed -> exit 0. GitHub red-X-on-PR demo pending first push.

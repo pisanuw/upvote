@@ -1,5 +1,7 @@
 # UpvoteMe
 
+[![CI](https://github.com/pisanuw/upvote/actions/workflows/ci.yml/badge.svg)](https://github.com/pisanuw/upvote/actions/workflows/ci.yml)
+
 Private, unlisted topic threads with comments, attachments, and voting.
 
 ## Features
