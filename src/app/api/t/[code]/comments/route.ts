@@ -228,7 +228,10 @@ export async function POST(
       topic.shortCode,
       comment.authorName,
       comment.body,
-    ).catch(() => {});
+    ).catch((err) => {
+      // Best-effort notification: never fail the request, but do not swallow silently.
+      console.error("notifyTopicOwner failed", err);
+    });
   }
 
   return Response.json({

@@ -1,5 +1,6 @@
 import { SuperadminClient } from "@/components/superadmin-client";
 import { prisma } from "@/lib/prisma";
+import { safeEqual } from "@/lib/safe-equal";
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
@@ -14,7 +15,7 @@ export default async function SuperadminPage({
   const { secret } = await searchParams;
   const expected = process.env.SUPERADMIN_SECRET;
 
-  if (!expected || secret !== expected) {
+  if (!expected || !safeEqual(secret, expected)) {
     return (
       <main className="mx-auto w-full max-w-3xl p-6">
         <p className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
@@ -23,6 +24,9 @@ export default async function SuperadminPage({
       </main>
     );
   }
+
+  // safeEqual returned true, so `secret` matched the configured non-empty value.
+  const verifiedSecret: string = secret as string;
 
   const topics = await prisma.topic.findMany({
     orderBy: { createdAt: "desc" },
@@ -69,7 +73,7 @@ export default async function SuperadminPage({
           {data.length} topic{data.length !== 1 ? "s" : ""} total
         </p>
       </header>
-      <SuperadminClient initial={data} secret={secret} />
+      <SuperadminClient initial={data} secret={verifiedSecret} />
     </main>
   );
 }

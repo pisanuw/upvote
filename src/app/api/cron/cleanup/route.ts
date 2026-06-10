@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { safeEqual } from "@/lib/safe-equal";
 
 const MAX_IDLE_DAYS = 30;
 
@@ -6,7 +7,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const token = url.searchParams.get("token");
 
-  if (!process.env.CRON_SECRET || token !== process.env.CRON_SECRET) {
+  if (!process.env.CRON_SECRET || !safeEqual(token, process.env.CRON_SECRET)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
