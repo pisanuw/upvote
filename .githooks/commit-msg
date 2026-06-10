@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Enforce Conventional Commits on the commit subject line.
+# Activated via: git config core.hooksPath .githooks
+# See https://www.conventionalcommits.org/
+set -euo pipefail
+
+msg_file="$1"
+# First non-comment, non-empty line is the subject.
+subject="$(grep -vE '^\s*#' "$msg_file" | grep -vE '^\s*$' | head -n1 || true)"
+
+# Allow merge/revert/fixup commits that git or tooling generate.
+case "$subject" in
+  "Merge "*|"Revert "*|"fixup! "*|"squash! "*) exit 0 ;;
+esac
+
+pattern='^(feat|fix|chore|docs|refactor|test|ci|build|perf|style|revert)(\([a-z0-9._/-]+\))?!?: .+'
+
+if [[ ! "$subject" =~ $pattern ]]; then
+  echo "commit-msg: subject does not follow Conventional Commits." >&2
+  echo "  got:      $subject" >&2
+  echo "  expected: type(optional-scope): summary" >&2
+  echo "  types:    feat fix chore docs refactor test ci build perf style revert" >&2
+  echo "  example:  fix(auth): reject expired magic-link tokens" >&2
+  exit 1
+fi

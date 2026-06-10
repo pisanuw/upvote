@@ -1,8 +1,13 @@
 # UpvoteMe
 
 [![CI](https://github.com/pisanuw/upvote/actions/workflows/ci.yml/badge.svg)](https://github.com/pisanuw/upvote/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-Private, unlisted topic threads with comments, attachments, and voting.
+**What:** A web app for private, unlisted topic threads with comments, file attachments, and upvoting — shareable by link, with no public discovery.
+**Status:** Live at [upvoteme.netlify.app](https://upvoteme.netlify.app); CI green on `main`.
+**Run:** `npm install` → set `.env` (see [Quick Start](#quick-start)) → `npm run dev`.
+
+Built with Next.js (App Router), Prisma, and Supabase Postgres.
 
 ## Features
 
@@ -144,3 +149,14 @@ npm run build
 - `GET /api/t/:code/comments/:commentId/attachments/:attachmentId` download attachment
 - `GET|PATCH|DELETE /api/a/:adminCode` admin read/update/delete
 - `GET /api/cron/cleanup?token=...` remove inactive topics
+
+## Contributing
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/)
+(`feat:`, `fix:`, `chore:`, `docs:`, `ci:`, `test:`, `refactor:`). A
+`commit-msg` hook enforces this once you run `git config core.hooksPath .githooks`
+(see [Git Hooks](#git-hooks)).
+
+## License
+
+[MIT](LICENSE) © Yusuf Pisan

@@ -21,3 +21,9 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-10 [code] CI gates (was NO CI): added .github/workflows/ci.yml (push+PR) running npm ci/lint/typecheck/test/build, added typecheck script, README badge. Build uses dummy env (data routes dynamic).
 
 2026-06-10 [note] CI gate verified fail-closed locally: an injected failing test made npm test exit 1; removed -> exit 0. GitHub red-X-on-PR demo pending first push.
+
+2026-06-10 [note] CI verified on GitHub: main run green; demo PR #2 with a failing test showed red X, then closed/branch deleted.
+
+2026-06-10 [decision] Presentation audit: added MIT LICENSE (+package.json license), README what/status/run block + license/contributing sections, GitHub description/topics/homepage set. README claims verified true.
+
+2026-06-10 [code] Adopted Conventional Commits: documented in AGENTS.md, added .githooks/commit-msg enforcement. Single squashed Initial commit noted (not rewritten); future work incremental.
