@@ -13,3 +13,7 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-10 [code] Fail-closed audit F5: rate-limit.ts comment corrected (NOT effective on serverless) and added expired-entry eviction + MAX_ENTRIES cap to bound memory. Eviction test added.
 
 2026-06-10 [note] Fail-closed audit: no SSRF, no crypto fallbacks, auth.ts fail-closed. Email-notify catch now logs. Pre-existing: react-markdown not installed (1 test suite + tsc errors).
+
+2026-06-10 [decision] Security upgrade: next 16.2.4->16.2.9 (+eslint-config-next), fast-uri override ^3.1.2. Clears both high advisories. Verified: tsc, 93 tests, next build, lint all pass.
+
+2026-06-10 [note] Remaining audit items all moderate/low with fixAvailable=false (no safe fix): postcss/next moderate, next-auth (needs v5 major), nodemailer (no patch; vectors not user-controlled), dev-only Prisma tooling. Deferred.
