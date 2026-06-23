@@ -29,3 +29,17 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-10 [code] Adopted Conventional Commits: documented in AGENTS.md, added .githooks/commit-msg enforcement. Single squashed Initial commit noted (not rewritten); future work incremental.
 
 2026-06-10 [code] Fresh-clone test found npm install failing: postinstall prisma generate threw on unset DATABASE_URL. Fixed prisma.config.ts to read env tolerantly (url: process.env.DATABASE_URL ?? "").
+
+2026-06-10 [note] react-markdown/remark/rehype were declared in package.json but node_modules was out of sync; npm install synced them, fixing the markdown test suite (now 93 tests). No tracked change.
+
+2026-06-10 [note] Session pushed 4 commits to origin/main; 2 commits (docs license/README, fix prisma config) committed locally and left for owner to push.
+
+2026-06-23 [note] Supabase RLS advisory (rls_disabled_in_public) triage: UpvoteMe's 8 tables ALREADY have RLS enabled (deny-all; Prisma owner + service-role bypass). No _prisma_migrations table. Not the source.
+
+2026-06-23 [scope] Found Supabase DB is SHARED: public schema also holds a 2nd app's ~19 tables (learning/tutoring platform). DB-wide ops affect that app; scope DB changes to UpvoteMe's 8 tables.
+
+2026-06-23 [note] Advisory targets other app's 8 RLS-off tables: graded_events,judge_samples,mastery_attempts,path_events,session_summaries,student_paths,tracks,turn_events. Full anon CRUD grants = live exposure.
+
+2026-06-23 [note] Read-only probe: all public tables grant anon/authenticated full CRUD, 0 policies anywhere, other app has 11 deny-all RLS tables -> backend-only; deny-all RLS on the 8 is the correct fix.
+
+2026-06-23 [decision] Made NO DB changes (read-only only). Recommended owner apply deny-all RLS to the 8 other-app tables in THAT app's project (not UpvoteMe repo). Awaiting go-ahead.
