@@ -47,3 +47,6 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-10 [code] netlify.toml 301s upvoteme.netlify.app to upvoteme.hintwise.org, the primary address since 9 Nov (NEXTAUTH_URL), so sign-in stays on one host.
 
 2026-11-10 [code] Google sign-in via shared Supabase: NextAuth provider `supabase` (PKCE, auth.hintwise.org), users linked by verified email, no tokens stored; direct Google kept as rollback.
+
+2026-11-10 [code] Google buttons follow Google's branding guidelines: Google's G (sha256-checked), light theme, Google's text; icon-only in the header on phones; email button equally prominent.
+2026-11-10 [code] Shared HintWise footer in the root layout: footerHtml('upvoteme') from claude-built-apps scripts/site-footer.mjs, sha256-checked; owner's yes.
