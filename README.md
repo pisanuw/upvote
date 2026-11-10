@@ -102,10 +102,19 @@ Minimum local variables:
 - `AUTH_SECRET`
 - `NEXTAUTH_URL`
 
-For Google OAuth:
+Google sign-in goes through the shared HintWise Supabase project
+(`https://auth.hintwise.org`, see `src/lib/supabase-auth.ts`) and needs no
+variables: the browser goes to Supabase, then Google, then back to
+`/api/auth/callback/supabase`, and NextAuth keeps its database sessions as
+before. Existing users are matched by their Google-verified email. Supabase
+only returns to addresses on its allow-list (`https://*.hintwise.org/**`), so
+Google sign-in works on `upvoteme.hintwise.org`, not on localhost or deploy
+previews. Optional overrides: `SUPABASE_AUTH_URL`, `SUPABASE_AUTH_ANON_KEY`.
 
-- `AUTH_GOOGLE_ID`
-- `AUTH_GOOGLE_SECRET`
+Rollback to the app's own Google OAuth client: set
+`NEXT_PUBLIC_GOOGLE_AUTH_VIA=direct` plus `AUTH_GOOGLE_ID` and
+`AUTH_GOOGLE_SECRET`, put `https://upvoteme.hintwise.org/api/auth/callback/google`
+back on the Google client, and redeploy (the variable is read at build time).
 
 For magic-link login (SMTP):
 

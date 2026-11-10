@@ -45,3 +45,5 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-23 [decision] Made NO DB changes (read-only only). Recommended owner apply deny-all RLS to the 8 other-app tables in THAT app's project (not UpvoteMe repo). Awaiting go-ahead.
 
 2026-11-10 [code] netlify.toml 301s upvoteme.netlify.app to upvoteme.hintwise.org, the primary address since 9 Nov (NEXTAUTH_URL), so sign-in stays on one host.
+
+2026-11-10 [code] Google sign-in via shared Supabase: NextAuth provider `supabase` (PKCE, auth.hintwise.org), users linked by verified email, no tokens stored; direct Google kept as rollback.
