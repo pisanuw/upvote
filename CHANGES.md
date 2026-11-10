@@ -43,3 +43,5 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-06-23 [note] Read-only probe: all public tables grant anon/authenticated full CRUD, 0 policies anywhere, other app has 11 deny-all RLS tables -> backend-only; deny-all RLS on the 8 is the correct fix.
 
 2026-06-23 [decision] Made NO DB changes (read-only only). Recommended owner apply deny-all RLS to the 8 other-app tables in THAT app's project (not UpvoteMe repo). Awaiting go-ahead.
+
+2026-11-10 [code] netlify.toml 301s upvoteme.netlify.app to upvoteme.hintwise.org, the primary address since 9 Nov (NEXTAUTH_URL), so sign-in stays on one host.
