@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn, signOut } from "next-auth/react";
+import { googleProviderId } from "@/lib/google-sign-in";
 
 export function SignInPanel({
   isSignedIn,
@@ -25,7 +26,7 @@ export function SignInPanel({
     <div className="flex gap-2">
       <button
         type="button"
-        onClick={() => signIn("google", { callbackUrl })}
+        onClick={() => signIn(googleProviderId(), { callbackUrl })}
         className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
       >
         Google sign-in

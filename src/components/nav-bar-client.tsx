@@ -1,6 +1,7 @@
 "use client";
 
 import { signIn, signOut } from "next-auth/react";
+import { googleProviderId } from "@/lib/google-sign-in";
 import { useEffect, useRef, useState } from "react";
 
 type UserInfo = {
@@ -192,7 +193,7 @@ function SignInButtons({ callbackUrl }: { callbackUrl: string }) {
     <div className="flex items-center gap-2">
       <button
         type="button"
-        onClick={() => signIn("google", { callbackUrl })}
+        onClick={() => signIn(googleProviderId(), { callbackUrl })}
         className="flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
       >
         {/* Google "G" icon */}
