@@ -2,6 +2,7 @@
 
 import { signIn, signOut } from "next-auth/react";
 import { googleProviderId } from "@/lib/google-sign-in";
+import { GoogleSignInButton, SIGN_IN_BUTTON_CLASS } from "@/components/google-sign-in-button";
 
 export function SignInPanel({
   isSignedIn,
@@ -23,14 +24,8 @@ export function SignInPanel({
   }
 
   return (
-    <div className="flex gap-2">
-      <button
-        type="button"
-        onClick={() => signIn(googleProviderId(), { callbackUrl })}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
-      >
-        Google sign-in
-      </button>
+    <div className="flex flex-wrap gap-2">
+      <GoogleSignInButton onClick={() => signIn(googleProviderId(), { callbackUrl })} />
       <button
         type="button"
         onClick={() => {
@@ -38,9 +33,9 @@ export function SignInPanel({
           if (!email) return;
           void signIn("email", { email, callbackUrl });
         }}
-        className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-800 hover:bg-slate-100"
+        className={SIGN_IN_BUTTON_CLASS}
       >
-        Magic link
+        Email me a sign-in link
       </button>
     </div>
   );
