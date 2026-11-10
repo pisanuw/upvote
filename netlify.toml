@@ -7,3 +7,12 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+# The primary address is upvoteme.hintwise.org (NEXTAUTH_URL). Send the old
+# netlify.app address there so a sign-in never starts on one host and returns
+# to the other (its cookies would be on the wrong host). Deploy previews use
+# other hosts and are not affected.
+[[redirects]]
+  from = "https://upvoteme.netlify.app/*"
+  to = "https://upvoteme.hintwise.org/:splat"
+  status = 301
+  force = true
