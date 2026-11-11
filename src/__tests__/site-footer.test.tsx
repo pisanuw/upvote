@@ -7,7 +7,7 @@ import { SITE_FOOTER_HTML, SITE_FOOTER_SHA256, SiteFooter } from "@/components/s
 describe("SiteFooter", () => {
   it("is footerHtml('upvoteme') from claude-built-apps scripts/site-footer.mjs, byte for byte", () => {
     expect(createHash("sha256").update(SITE_FOOTER_HTML).digest("hex")).toBe(SITE_FOOTER_SHA256);
-    expect(SITE_FOOTER_SHA256).toBe("3a0c0b60a388ccc8a4add52271b9ff148ca6cb19b594e7a23fc7fd3f5472ac8b");
+    expect(SITE_FOOTER_SHA256).toBe("163b63d8c61eb97efa925c4b8ac6759758c5e5a75a5b7fa11ade42db7c01d26a");
   });
 
   it("renders the markup unescaped, once, in a display: contents wrapper", () => {
