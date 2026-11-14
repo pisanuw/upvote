@@ -51,3 +51,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-10 [code] Google buttons follow Google's branding guidelines: Google's G (sha256-checked), light theme, Google's text; icon-only in the header on phones; email button equally prominent.
 2026-11-10 [code] Shared HintWise footer in the root layout: footerHtml('upvoteme') from claude-built-apps scripts/site-footer.mjs, sha256-checked; owner's yes.
 2026-11-11 [code] Footer copy updated to the HintWise icon version (claude-built-apps 2e17481).
+2026-11-14 [code] Node 24 for the Netlify build and CI (was 20, end of life); actions/checkout and setup-node v4 to v7. Lint, typecheck, tests and build pass on Node 24; owner yes.
