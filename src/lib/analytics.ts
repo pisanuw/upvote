@@ -11,30 +11,15 @@
  */
 export const ANALYTICS_APP = "upvoteme";
 export const HW_EVENTS_SRC = "/hw-events.js";
-export const HW_EVENTS_SHA256 = "fe0b6e92ddd6093e9ba7fa2b9fff32cd68bb5a42e191e9770fda93e5a1ba6227";
+export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8e55ad32b907f00633";
 
 /**
- * Topic (/t/<code>) and admin (/a/<adminCode>) pages carry their access code
- * in the path, and the script's id masking misses many of these codes (an
- * all-letter code, or one with a single digit, looks like a word to it), so
- * those pages load no analytics at all. Every other page does.
+ * Topic (/t/<code>) and admin (/a/<adminCode>) addresses are the access code.
+ * The script's id rule misses many of these codes (an all-letter code, or one
+ * with a single digit, looks like a word to it), so data-mask makes it send
+ * the segment after each prefix as ":id" whatever it looks like.
  */
-export function analyticsAllowed(pathname: string | null | undefined): boolean {
-  return typeof pathname === "string" && !/^\/[ta](\/|$)/.test(pathname);
-}
-
-/**
- * Loads the script once per document. The root layout server-renders the tag
- * on pages that allow it; this covers a client-side move from a topic or
- * admin page to one that does (the logo link to the home page).
- */
-export function loadHwEvents(doc: Document): void {
-  if (doc.querySelector(`script[src="${HW_EVENTS_SRC}"]`)) return;
-  const s = doc.createElement("script");
-  s.src = HW_EVENTS_SRC;
-  s.setAttribute("data-app", ANALYTICS_APP);
-  doc.head.appendChild(s);
-}
+export const HW_EVENTS_MASK = "/t/ /a/";
 
 type Props = Record<string, string | number | boolean>;
 
