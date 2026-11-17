@@ -6,6 +6,13 @@ import { googleProviderId } from "@/lib/google-sign-in";
 import { signInHref } from "@/lib/callback-url";
 import { GoogleSignInButton, SIGN_IN_LINK_CLASS } from "@/components/google-sign-in-button";
 import { EmailSignInForm } from "@/components/email-sign-in-form";
+import { track } from "@/lib/analytics";
+
+/** Starts Google sign-in, counted as the app event sign_in_started. */
+function signInWithGoogle(callbackUrl: string) {
+  track("sign_in_started", { method: "google" });
+  void signIn(googleProviderId(), { callbackUrl });
+}
 
 /**
  * A compact sign-in box (the topic page's "Sign in to comment and vote"):
@@ -32,7 +39,7 @@ export function SignInPanel({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <GoogleSignInButton onClick={() => signIn(googleProviderId(), { callbackUrl })} />
+      <GoogleSignInButton onClick={() => signInWithGoogle(callbackUrl)} />
       <Link href={signInHref(callbackUrl)} className={SIGN_IN_LINK_CLASS}>
         Email me a sign-in code
       </Link>
@@ -44,7 +51,7 @@ export function SignInPanel({
 export function SignInOptions({ callbackUrl, hasPendingCode = false }: { callbackUrl: string; hasPendingCode?: boolean }) {
   return (
     <div>
-      <GoogleSignInButton fullWidth onClick={() => signIn(googleProviderId(), { callbackUrl })} />
+      <GoogleSignInButton fullWidth onClick={() => signInWithGoogle(callbackUrl)} />
       <div className="my-6 flex items-center gap-3 text-sm text-slate-500">
         <span aria-hidden className="h-px flex-1 bg-slate-200" />
         or

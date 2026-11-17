@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from "rea
 import { signIn } from "next-auth/react";
 import { SIGN_IN_BUTTON_CLASS } from "@/components/google-sign-in-button";
 import { signInErrorMessage } from "@/lib/sign-in-errors";
+import { track } from "@/lib/analytics";
 import {
   ENTER_CODE_LABEL,
   MAX_WRONG_CODES,
@@ -463,6 +464,7 @@ export function EmailSignInForm({ callbackUrl, hasPendingCode = false }: { callb
     e.preventDefault();
     if (status.kind === "sending") return;
     setStatus({ kind: "sending" });
+    track("sign_in_started", { method: "email" });
     const result = await requestSignInCode(email, callbackUrl);
     if (result.kind === "error") return setStatus(result);
     setCode("");
