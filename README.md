@@ -32,8 +32,8 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
   with no cookie and nothing kept in the browser: the page's path (ids
   masked), how long it was open, and the host of a link followed out. Never
   what a visitor types; nothing is sent under Global Privacy Control or Do
-  Not Track. Topic (`/t/...`) and admin (`/a/...`) pages load no analytics,
-  since their address is the access code.
+  Not Track. The access code in a topic (`/t/...`) or admin (`/a/...`)
+  address is always sent as `:id`, never the code itself.
 - Auto-cleanup:
 - topics are deleted after 30 days of inactivity
 - lazy deletion on access
