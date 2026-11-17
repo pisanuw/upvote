@@ -2,17 +2,15 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
-let pathname = "/";
-vi.mock("next/navigation", () => ({ usePathname: () => pathname }));
-
 import { HwEventsScript } from "@/components/hw-events-script";
-import { ANALYTICS_APP, HW_EVENTS_SHA256, analyticsAllowed, loadHwEvents, track } from "@/lib/analytics";
+import { ANALYTICS_APP, HW_EVENTS_MASK, HW_EVENTS_SHA256, track } from "@/lib/analytics";
 
 const root = resolve(__dirname, "../..");
-const TAG = '<script defer="" src="/hw-events.js" data-app="upvoteme"></script>';
+const SCRIPT = readFileSync(join(root, "public/hw-events.js"), "utf8");
+const TAG = '<script defer="" src="/hw-events.js" data-app="upvoteme" data-mask="/t/ /a/"></script>';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -22,44 +20,85 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+/** Runs the copied script on a page at `pathname` and returns what it would send on pagehide. */
+async function beaconsFor(pathname: string, attrs: Record<string, string>) {
+  const listeners: Record<string, (() => void)[]> = {};
+  const sent: Blob[] = [];
+  const g: Record<string, unknown> = {
+    document: {
+      currentScript: { getAttribute: (k: string) => attrs[k] ?? null },
+      visibilityState: "visible",
+      referrer: "",
+      addEventListener: () => {},
+    },
+    location: { pathname, hostname: "upvoteme.hintwise.org", href: `https://upvoteme.hintwise.org${pathname}` },
+    navigator: { sendBeacon: (_url: string, body: Blob) => sent.push(body) },
+    history: { pushState() {}, replaceState() {} },
+    addEventListener: (type: string, fn: () => void) => (listeners[type] ??= []).push(fn),
+    Blob,
+    URL,
+    setTimeout: () => 0,
+    clearTimeout: () => {},
+  };
+  g.window = g;
+  runInNewContext(SCRIPT, g);
+  listeners.pagehide?.forEach((fn) => fn());
+  return Promise.all(sent.map(async (b) => JSON.parse(await b.text())));
+}
+
 afterEach(() => {
-  pathname = "/";
   vi.unstubAllGlobals();
 });
 
 describe("hw-events.js", () => {
   it("is the platform's script, byte for byte", () => {
-    const js = readFileSync(join(root, "public/hw-events.js"));
-    expect(createHash("sha256").update(js).digest("hex")).toBe(HW_EVENTS_SHA256);
-    expect(HW_EVENTS_SHA256).toBe("fe0b6e92ddd6093e9ba7fa2b9fff32cd68bb5a42e191e9770fda93e5a1ba6227");
+    expect(createHash("sha256").update(SCRIPT).digest("hex")).toBe(HW_EVENTS_SHA256);
+    expect(HW_EVENTS_SHA256).toBe("d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8e55ad32b907f00633");
   });
 
-  it("uses the app's hintwise.org subdomain as its slug", () => {
+  it("uses the app's hintwise.org subdomain as its slug and masks topic and admin codes", () => {
     expect(ANALYTICS_APP).toBe("upvoteme");
+    expect(HW_EVENTS_MASK).toBe("/t/ /a/");
+  });
+
+  it("sends topic and admin pages as /t/:id and /a/:id, whatever the code looks like", async () => {
+    const attrs = { "data-app": ANALYTICS_APP, "data-mask": HW_EVENTS_MASK };
+    for (const [path, want] of [
+      ["/t/abcdefgh", "/t/:id"],
+      ["/t/abcd12ef", "/t/:id"],
+      ["/a/RHxtrCXLGyyrOooh", "/a/:id"],
+      ["/a/dVKAtQG1KYYfWxNf", "/a/:id"],
+      ["/signin", "/signin"],
+      ["/", "/"],
+    ]) {
+      const bodies = await beaconsFor(path, attrs);
+      expect(bodies).toEqual([{ a: "upvoteme", e: [{ n: "pageview", p: want }] }]);
+    }
+  });
+
+  it("would send these codes as they are without data-mask", async () => {
+    const bodies = await beaconsFor("/a/RHxtrCXLGyyrOooh", { "data-app": ANALYTICS_APP });
+    expect(bodies[0].e[0].p).toBe("/a/RHxtrCXLGyyrOooh");
   });
 });
 
 describe("HwEventsScript", () => {
-  it("renders the tag once on ordinary pages", () => {
-    for (const p of ["/", "/signin", "/superadmin"]) {
-      pathname = p;
-      const html = renderToStaticMarkup(createElement(HwEventsScript));
-      expect(html).toBe(TAG);
-    }
+  it("renders the tag with data-app and data-mask", () => {
+    expect(renderToStaticMarkup(createElement(HwEventsScript))).toBe(TAG);
   });
 
-  it("renders nothing on topic and admin pages, whose path holds the access code", () => {
-    for (const p of ["/t/abcdefgh", "/t/abcd12ef", "/a/RHxtrCXLGyyrOooh", "/t", "/a/"]) {
-      pathname = p;
-      expect(renderToStaticMarkup(createElement(HwEventsScript))).toBe("");
-    }
-  });
-
-  it("sits once in the root layout's <head>, and nothing else loads the script", () => {
+  it("sits once in the root layout's <head>, on every route, and nothing else loads the script", () => {
     const layout = readFileSync(join(root, "src/app/layout.tsx"), "utf8");
     expect(layout.split("<HwEventsScript />").length - 1).toBe(1);
     const head = layout.slice(layout.indexOf("<head>"), layout.indexOf("</head>"));
-    expect(head).toContain("<HwEventsScript />");
+    expect(head.trim()).toBe("<head>\n        <HwEventsScript />");
+
+    const component = readFileSync(join(root, "src/components/hw-events-script.tsx"), "utf8");
+    expect(component).not.toMatch(/usePathname|useState|useEffect/);
+
+    // /t/[code] and /a/[adminCode] have no layout of their own that could drop the tag.
+    const adminLayout = readFileSync(join(root, "src/app/a/[adminCode]/layout.tsx"), "utf8");
+    expect(adminLayout).toContain("<>{children}</>");
 
     const users = sourceFiles(join(root, "src")).filter((f) => /hw-events\.js|<HwEventsScript/.test(readFileSync(f, "utf8")));
     expect(users.map((f) => f.slice(root.length + 1)).sort()).toEqual([
@@ -67,46 +106,6 @@ describe("HwEventsScript", () => {
       "src/components/hw-events-script.tsx",
       "src/lib/analytics.ts",
     ]);
-  });
-});
-
-describe("analyticsAllowed", () => {
-  it("allows every page but /t/... and /a/...", () => {
-    expect(analyticsAllowed("/")).toBe(true);
-    expect(analyticsAllowed("/signin")).toBe(true);
-    expect(analyticsAllowed("/topics")).toBe(true);
-    expect(analyticsAllowed("/t/abc")).toBe(false);
-    expect(analyticsAllowed("/a/abc")).toBe(false);
-    expect(analyticsAllowed(null)).toBe(false);
-  });
-});
-
-describe("loadHwEvents", () => {
-  function fakeDocument(existing: boolean) {
-    const appended: { src: string; attrs: Record<string, string> }[] = [];
-    const doc = {
-      querySelector: (sel: string) => (existing && sel === 'script[src="/hw-events.js"]' ? {} : null),
-      createElement: () => {
-        const el = { src: "", attrs: {} as Record<string, string>, setAttribute: (k: string, v: string) => (el.attrs[k] = v) };
-        return el;
-      },
-      head: { appendChild: (el: { src: string; attrs: Record<string, string> }) => appended.push(el) },
-    };
-    return { doc: doc as unknown as Document, appended };
-  }
-
-  it("adds the script with data-app when the page has none", () => {
-    const { doc, appended } = fakeDocument(false);
-    loadHwEvents(doc);
-    expect(appended).toHaveLength(1);
-    expect(appended[0].src).toBe("/hw-events.js");
-    expect(appended[0].attrs).toEqual({ "data-app": "upvoteme" });
-  });
-
-  it("does nothing when the script is already on the page", () => {
-    const { doc, appended } = fakeDocument(true);
-    loadHwEvents(doc);
-    expect(appended).toHaveLength(0);
   });
 });
 
