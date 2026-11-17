@@ -3,6 +3,7 @@
 import { signIn, signOut } from "next-auth/react";
 import { googleProviderId } from "@/lib/google-sign-in";
 import { GoogleSignInButton, SIGN_IN_BUTTON_CLASS } from "@/components/google-sign-in-button";
+import { track } from "@/lib/analytics";
 
 export function SignInPanel({
   isSignedIn,
@@ -25,12 +26,18 @@ export function SignInPanel({
 
   return (
     <div className="flex flex-wrap gap-2">
-      <GoogleSignInButton onClick={() => signIn(googleProviderId(), { callbackUrl })} />
+      <GoogleSignInButton
+        onClick={() => {
+          track("sign_in_started", { method: "google" });
+          void signIn(googleProviderId(), { callbackUrl });
+        }}
+      />
       <button
         type="button"
         onClick={() => {
           const email = window.prompt("Enter your email for a magic link");
           if (!email) return;
+          track("sign_in_started", { method: "email" });
           void signIn("email", { email, callbackUrl });
         }}
         className={SIGN_IN_BUTTON_CLASS}
