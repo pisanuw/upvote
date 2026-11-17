@@ -53,3 +53,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-11 [code] Footer copy updated to the HintWise icon version (claude-built-apps 2e17481).
 2026-11-14 [code] Node 24 for the Netlify build and CI (was 20, end of life); actions/checkout and setup-node v4 to v7. Lint, typecheck, tests and build pass on Node 24; owner yes.
 2026-11-17 [code] HintWise first-party analytics (hw-events.js, sha256-checked, data-app upvoteme) in the root layout's <head>; not on /t/ and /a/ pages, whose codes the script's id masking often misses; events topic_created, sign_in_started. Branch analytics, not deployed.
+2026-11-17 [code] Analytics also on /t/ and /a/ pages: hw-events.js updated (data-mask support), tag carries data-mask="/t/ /a/" so codes are sent as :id; exclusion removed.
