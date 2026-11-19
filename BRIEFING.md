@@ -9,11 +9,11 @@
   - CI (.github/workflows/ci.yml) gates on push+PR: npm ci, lint, typecheck, test, build. Node 20. Build step uses placeholder env vars since all data routes are dynamic (no DB at build).
   - Secrets compared in constant time (src/lib/safe-equal.ts) for CRON_SECRET and SUPERADMIN_SECRET.
   - Rate limiter (src/lib/rate-limit.ts) is best-effort in-memory only; NOT effective on serverless. No durable rate limiting yet.
-  - next pinned at 16.2.9; fast-uri override ^3.1.2. Both high advisories cleared.
+  - next pinned at 16.4.6, eslint-config-next equal to it. Overrides: fast-uri ^3.1.2, and nodemailer for next-auth (next-auth 4.24.x declares peer nodemailer ^7; the app runs ^10.6.0 because the magic-link address reaches nodemailer's address parser, quadratic before 10.0.6). `npm audit --omit=dev` clean on 2026-11-19.
   - prisma.config.ts reads DATABASE_URL tolerantly so `prisma generate` / `npm install` work with zero config on a fresh clone.
   - The Supabase Postgres DB is SHARED with a second app (a learning/tutoring platform; ~19 extra tables in the public schema). DB-wide operations affect that app, so scope any DB change to UpvoteMe's 8 tables. All 8 already have RLS enabled (deny-all; backend bypasses via the Prisma `postgres` owner role + the service-role key). No `_prisma_migrations` table (schema applied via `prisma db push` + manual SQL in prisma/migrations/manual/).
   - Google sign-in goes through the shared HintWise Supabase project (auth.hintwise.org) since 10 Nov 2026: a NextAuth OAuth provider `supabase` (src/lib/supabase-auth.ts), PKCE, sessions still NextAuth database sessions. Only Google-verified emails sign in; existing users are linked by email. No Supabase tokens are stored. Rollback: NEXT_PUBLIC_GOOGLE_AUTH_VIA=direct (README). Magic link stays NextAuth's Email provider.
 - Non-goals (for now):
-  - Not migrating to next-auth v5 (would clear remaining moderate advisories but is a major migration). Remaining moderate/low advisories have no safe fix and are deferred.
+  - Not migrating to next-auth v5 (a major migration). The v4 advisories were fixed within 4.x (4.24.15, 2026-11-19).
   - No git history rewrite (single squashed Initial commit left as-is; work stays incremental going forward).
   - No durable/shared rate limiting until a real need arises.

@@ -8,9 +8,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { Adapter, AdapterAccount, AdapterSession, AdapterUser } from "next-auth/adapters";
+import type {
+  Adapter,
+  AdapterAccount,
+  AdapterSession,
+  AdapterUser,
+  VerificationToken,
+} from "next-auth/adapters";
 import { buildAuthOptions, buildProviders } from "./auth-options";
 import type { SupabaseUser } from "./supabase-auth";
+import { fakeSmtp } from "@/__tests__/fake-smtp";
 
 // NextAuth's request-level handler (what its route handler calls). The
 // package does not export "next-auth/core", so load the file directly.
@@ -40,6 +47,7 @@ function memoryAdapter() {
   const users = new Map<string, AdapterUser>();
   const accounts: AdapterAccount[] = [];
   const sessions: AdapterSession[] = [];
+  const tokens: VerificationToken[] = [];
   let n = 0;
   const adapter: Adapter = {
     createUser: vi.fn(async (data: Omit<AdapterUser, "id">) => {
@@ -69,8 +77,16 @@ function memoryAdapter() {
     getSessionAndUser: vi.fn(async () => null),
     updateSession: vi.fn(async () => null),
     deleteSession: vi.fn(async () => null),
+    createVerificationToken: vi.fn(async (t: VerificationToken) => {
+      tokens.push(t);
+      return t;
+    }),
+    useVerificationToken: vi.fn(async ({ identifier, token }: { identifier: string; token: string }) => {
+      const i = tokens.findIndex((t) => t.identifier === identifier && t.token === token);
+      return i < 0 ? null : tokens.splice(i, 1)[0];
+    }),
   };
-  return { adapter, users, accounts, sessions };
+  return { adapter, users, accounts, sessions, tokens };
 }
 
 const googleUser = (over: Partial<SupabaseUser> = {}): SupabaseUser => ({
@@ -280,5 +296,118 @@ describe("Google sign-in through Supabase, end to end in NextAuth", () => {
 
     expect(res.redirect).toContain("error=");
     expect(sessions).toHaveLength(0);
+  });
+});
+
+/**
+ * The magic link (NextAuth's Email provider) through the installed nodemailer,
+ * with a fake SMTP wire: the link is composed and handed to SMTP, the token in
+ * it signs the user in, and a hostile address typed into the form is parsed in
+ * linear time.
+ */
+describe("Magic-link sign-in, end to end in NextAuth and nodemailer", () => {
+  // next-auth's Email provider calls require("nodemailer").createTransport, so
+  // the fake goes on the CommonJS exports, the object next-auth gets.
+  const cjsNodemailer = createRequire(import.meta.url)("nodemailer") as object;
+  const smtpEnv = {
+    AUTH_SMTP_HOST: "smtp.test",
+    AUTH_SMTP_PORT: "587",
+    AUTH_SMTP_USER: "u",
+    AUTH_SMTP_PASS: "p",
+    AUTH_SMTP_FROM: "UpvoteMe <login@upvoteme.test>",
+  };
+
+  /**
+   * NextAuth's route handler sets `secret` from AUTH_SECRET; set it the same
+   * way here, since the bare core handler otherwise derives one from the
+   * options object, which the Email provider's config merge changes.
+   */
+  const magicLinkOptions = (adapter: Adapter) => ({
+    ...buildAuthOptions(adapter, { ...env, ...smtpEnv }),
+    secret: "test-secret",
+  });
+
+  /** CSRF, then POST /signin/email, as the sign-in form does. */
+  async function requestLink(options: ReturnType<typeof buildAuthOptions>, email: string) {
+    const csrf = await AuthHandler<{ csrfToken: string }>({
+      req: { action: "csrf", method: "GET", origin: APP },
+      options,
+    });
+    const csrfCookies = cookieMap(csrf.cookies);
+    const res = await AuthHandler({
+      req: {
+        action: "signin",
+        providerId: "email",
+        method: "POST",
+        origin: APP,
+        cookies: csrfCookies,
+        body: { csrfToken: csrf.body!.csrfToken, email, callbackUrl: `${APP}/t/abc` },
+      },
+      options,
+    });
+    return { res, cookies: { ...csrfCookies, ...cookieMap(res.cookies) } };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("mails the sign-in link over SMTP, and the link signs the user in", async () => {
+    const { sent } = fakeSmtp(cjsNodemailer);
+    const { adapter, users, sessions, tokens } = memoryAdapter();
+    const options = magicLinkOptions(adapter);
+
+    const { res, cookies } = await requestLink(options, "  Alice@Example.com ");
+
+    expect(res.redirect).toBe(`${APP}/api/auth/verify-request?provider=email&type=email`);
+    expect(sent).toHaveLength(1);
+    const [mail] = sent;
+    expect(mail.smtp).toEqual({ host: "smtp.test", port: 587, auth: { user: "u", pass: "p" } });
+    expect(mail.envelope).toEqual({ from: "login@upvoteme.test", to: ["alice@example.com"] });
+    expect(mail.raw).toMatch(/^To: alice@example\.com\r$/m);
+    expect(mail.raw).toMatch(/^From: UpvoteMe <login@upvoteme\.test>\r$/m);
+    expect(mail.raw).toMatch(/^Subject: Sign in to upvoteme\.hintwise\.org\r$/m);
+    expect(tokens).toHaveLength(1);
+
+    const link = new URL(mail.text.split("\n")[1]);
+    expect(link.origin + link.pathname).toBe(`${APP}/api/auth/callback/email`);
+    expect(link.searchParams.get("email")).toBe("alice@example.com");
+
+    const callback = await AuthHandler({
+      req: {
+        action: "callback",
+        providerId: "email",
+        method: "GET",
+        origin: APP,
+        query: Object.fromEntries(link.searchParams),
+        cookies,
+      },
+      options,
+    });
+
+    expect(callback.redirect).toBe(`${APP}/t/abc`);
+    expect([...users.values()]).toMatchObject([{ email: "alice@example.com" }]);
+    expect(sessions).toHaveLength(1);
+    expect(cookieMap(callback.cookies)["__Secure-next-auth.session-token"]).toBe(sessions[0].sessionToken);
+  });
+
+  // GHSA-2x7j-588g-ccc2 and GHSA-v53p-9fqp-m79j. Both addresses pass
+  // next-auth's normalizer (one "@", no quotes, a dot in the domain), and
+  // nodemailer before 9.1.0 and 10.0.6 parsed them in quadratic time,
+  // blocking the event loop: about 14 s and 24 s on 7.0.13. Linear on 10.x.
+  it.each([
+    ["a long recipient list", Array.from({ length: 40_000 }, (_, i) => `a${i}`).join(",") + "@b.co"],
+    ["a long run before the address", "[x]".repeat(40_000) + " y@b.co"],
+  ])("parses %s typed into the form in linear time", async (_shape, email) => {
+    const { sent } = fakeSmtp(cjsNodemailer);
+    const { adapter } = memoryAdapter();
+    const options = magicLinkOptions(adapter);
+
+    const started = performance.now();
+    await requestLink(options, email);
+    const elapsed = performance.now() - started;
+
+    expect(sent).toHaveLength(1);
+    expect(elapsed).toBeLessThan(2_000);
   });
 });
