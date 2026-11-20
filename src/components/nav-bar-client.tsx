@@ -1,13 +1,17 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signIn, signOut } from "next-auth/react";
 import { googleProviderId } from "@/lib/google-sign-in";
+import { signInHref } from "@/lib/callback-url";
 import {
   COMPACT_BUTTON_CLASS,
   COMPACT_TEXT_CLASS,
   GoogleSignInButton,
-  SIGN_IN_BUTTON_CLASS,
+  SIGN_IN_LINK_CLASS,
 } from "@/components/google-sign-in-button";
+import { EMAIL_INPUT_ID, EnvelopeIcon } from "@/components/email-sign-in-form";
 import { useEffect, useRef, useState } from "react";
 
 type UserInfo = {
@@ -194,26 +198,29 @@ function AccountMenu({ user }: { user: UserInfo }) {
 
 // ─── Signed-out buttons ────────────────────────────────────────────────────────
 
+/**
+ * Where the top bar's "Magic link" goes: the sign-in page, returning to this
+ * page afterwards. On the sign-in page itself it points at the email field,
+ * which keeps the page's own callbackUrl.
+ */
+export function magicLinkHref(pathname: string | null): string {
+  return pathname === "/signin" ? `#${EMAIL_INPUT_ID}` : signInHref(pathname ?? "/");
+}
+
 function SignInButtons({ callbackUrl }: { callbackUrl: string }) {
+  const pathname = usePathname();
+  const onSignInPage = pathname === "/signin";
   return (
     <div className="flex items-center gap-2">
       <GoogleSignInButton text="Sign in with Google" compact onClick={() => signIn(googleProviderId(), { callbackUrl })} />
-      <button
-        type="button"
-        onClick={() => {
-          const email = window.prompt("Enter your email for a magic link");
-          if (!email) return;
-          void signIn("email", { email, callbackUrl });
-        }}
-        className={`${SIGN_IN_BUTTON_CLASS} ${COMPACT_BUTTON_CLASS} gap-1.5`}
+      <Link
+        href={magicLinkHref(pathname)}
+        onClick={onSignInPage ? () => document.getElementById(EMAIL_INPUT_ID)?.focus() : undefined}
+        className={`${SIGN_IN_LINK_CLASS} ${COMPACT_BUTTON_CLASS} gap-1.5`}
       >
-        {/* Envelope icon */}
-        <svg viewBox="0 0 20 20" className="h-4 w-4 text-slate-500" fill="currentColor" aria-hidden>
-          <path d="M2.003 5.884L10 9.882l7.997-3.998A2 2 0 0016 4H4a2 2 0 00-1.997 1.884z"/>
-          <path d="M18 8.118l-8 4-8-4V14a2 2 0 002 2h12a2 2 0 002-2V8.118z"/>
-        </svg>
+        <EnvelopeIcon />
         <span className={COMPACT_TEXT_CLASS}>Magic link</span>
-      </button>
+      </Link>
     </div>
   );
 }

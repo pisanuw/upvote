@@ -27,20 +27,30 @@ export const SIGN_IN_BUTTON_CLASS =
 export const COMPACT_BUTTON_CLASS = "max-sm:w-10 max-sm:px-[9px]";
 export const COMPACT_TEXT_CLASS = "max-sm:sr-only";
 
+/**
+ * The same button shape on a link. globals.css colours every `a` with the
+ * accent, outside Tailwind's layers, so the text colour is marked important.
+ */
+export const SIGN_IN_LINK_CLASS = `${SIGN_IN_BUTTON_CLASS} text-[#1F1F1F]!`;
+
 export function GoogleSignInButton({
   text = "Continue with Google",
   compact = false,
+  fullWidth = false,
   onClick,
 }: {
   text?: GoogleButtonText;
   compact?: boolean;
+  /** Fill the width, for a column of sign-in options. */
+  fullWidth?: boolean;
   onClick: () => void;
 }) {
+  const className = compact ? `${SIGN_IN_BUTTON_CLASS} ${COMPACT_BUTTON_CLASS}` : SIGN_IN_BUTTON_CLASS;
   return (
     <button
       type="button"
       onClick={onClick}
-      className={compact ? `${SIGN_IN_BUTTON_CLASS} ${COMPACT_BUTTON_CLASS}` : SIGN_IN_BUTTON_CLASS}
+      className={fullWidth ? `${className} w-full` : className}
     >
       <span
         className={`${compact ? "sm:mr-[10px]" : "mr-[10px]"} inline-flex h-5 w-5 flex-none`}
