@@ -122,7 +122,15 @@ For magic-link login (SMTP):
 - `AUTH_SMTP_PORT`
 - `AUTH_SMTP_USER`
 - `AUTH_SMTP_PASS`
-- `AUTH_SMTP_FROM`
+- `AUTH_SMTP_FROM` (the sender of the sign-in email and of the new-comment email)
+
+For the new-comment notification:
+
+- `ADMIN_EMAIL` (optional): the address that receives the new-comment email.
+  When unset, the email goes to `AUTH_SMTP_FROM`, which is usually a no-reply
+  address. Set it as a plain (not secret-flagged) Netlify variable. A
+  secret-flagged `builder@hintwise.org` would trip Netlify's secret scan,
+  because the built footer contains `mailto:builder@hintwise.org`.
 
 For scheduled cleanup endpoint:
 
