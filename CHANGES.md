@@ -53,3 +53,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-11 [code] Footer copy updated to the HintWise icon version (claude-built-apps 2e17481).
 2026-11-14 [code] Node 24 for the Netlify build and CI (was 20, end of life); actions/checkout and setup-node v4 to v7. Lint, typecheck, tests and build pass on Node 24; owner yes.
 2026-11-19 [code] Security updates from the weekly audit: next and eslint-config-next 16.4.6, next-auth 4.24.15, in-range npm audit fix (prisma 7.10.1 and others), nodemailer 7 to 10.6.0 with an override for next-auth's ^7 peer (D-1: a magic-link address reaches nodemailer's quadratic address parser); npm audit --omit=dev 20 to 0.
+2026-11-20 [code] Magic link without the popup: a /signin page (Google, an email form, ?error= in words); same-site callbackUrl only; the top bar and topic box link there and return to the page.

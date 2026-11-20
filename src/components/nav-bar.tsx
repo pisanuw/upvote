@@ -1,12 +1,9 @@
 import { auth } from "@/auth";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { NavBarClient } from "@/components/nav-bar-client";
 
 export async function NavBar() {
   const session = await auth();
-  const headersList = await headers();
-  const pathname = headersList.get("x-invoke-path") ?? "/";
 
   const user = session?.user
     ? {
@@ -23,7 +20,7 @@ export async function NavBar() {
         <Link href="/" className="text-xl font-black text-slate-900 hover:text-orange-500 transition-colors">
           UpvoteMe
         </Link>
-        <NavBarClient user={user} callbackUrl={pathname} />
+        <NavBarClient user={user} />
       </div>
     </nav>
   );
