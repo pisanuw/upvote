@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   EmailSignInForm,
   EmailSignInFormView,
   isPlausibleEmail,
+  isVerifyRequestUrl,
   sendSignInLink,
   type EmailFormStatus,
   type SendEmailSignIn,
@@ -18,9 +19,12 @@ function view(status: EmailFormStatus, email = "alice@example.com") {
   );
 }
 
+const VERIFY_REQUEST = "http://localhost:3000/api/auth/verify-request?provider=email&type=email";
+const CSRF_REJECTED = "http://localhost:3000/api/auth/signin?csrf=true";
+
 describe("sendSignInLink", () => {
   it("asks NextAuth's Email provider for a link without leaving the page", async () => {
-    const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, ok: true }));
+    const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, status: 200, ok: true, url: VERIFY_REQUEST }));
     const status = await sendSignInLink("  alice@example.com ", "/t/abc", send);
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith("email", { email: "alice@example.com", callbackUrl: "/t/abc", redirect: false });
@@ -33,8 +37,20 @@ describe("sendSignInLink", () => {
   });
 
   it("reports a failed response without a code as Default", async () => {
-    const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, ok: false }));
+    const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, ok: false, url: VERIFY_REQUEST }));
     expect(await sendSignInLink("alice@example.com", "/", send)).toEqual({ kind: "error", code: "Default" });
+  });
+
+  it("does not say 'sent' when NextAuth rejected the CSRF token (200, no error, .../signin?csrf=true)", async () => {
+    const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, status: 200, ok: true, url: CSRF_REJECTED }));
+    expect(await sendSignInLink("alice@example.com", "/", send)).toEqual({ kind: "error", code: "Default" });
+  });
+
+  it("does not say 'sent' without NextAuth's verify-request address", async () => {
+    for (const url of [null, undefined, "", "http://localhost:3000/", "http://[bad"]) {
+      const send = vi.fn<SendEmailSignIn>(async () => ({ error: null, ok: true, url }));
+      expect(await sendSignInLink("alice@example.com", "/", send)).toEqual({ kind: "error", code: "Default" });
+    }
   });
 
   it("reports no answer (NextAuth navigated away) as Default", async () => {
@@ -54,6 +70,66 @@ describe("sendSignInLink", () => {
     expect(await sendSignInLink("   ", "/", send)).toEqual({ kind: "error", code: "EmailRequired" });
     expect(await sendSignInLink("alice", "/", send)).toEqual({ kind: "error", code: "EmailInvalid" });
     expect(send).not.toHaveBeenCalled();
+  });
+});
+
+describe("isVerifyRequestUrl", () => {
+  it.each([VERIFY_REQUEST, "/api/auth/verify-request", "https://upvoteme.hintwise.org/api/auth/verify-request?provider=email"])(
+    "accepts %s",
+    (url) => expect(isVerifyRequestUrl(url)).toBe(true),
+  );
+  it.each([CSRF_REJECTED, "http://localhost:3000/api/auth/error?error=EmailSignin", "/t/verify-request-x", null, ""])(
+    "rejects %j",
+    (url) => expect(isVerifyRequestUrl(url)).toBe(false),
+  );
+});
+
+/**
+ * The same cases through next-auth/react's own signIn: only the server's
+ * answers are stubbed (fetch), so the result shapes are the real ones.
+ */
+describe("sendSignInLink with next-auth/react's signIn", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function serverAnswers(signinUrl: string) {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL, init?: RequestInit) => {
+        const url = String(input);
+        calls.push(`${(init?.method ?? "GET").toUpperCase()} ${new URL(url).pathname}`);
+        const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+        if (url.endsWith("/api/auth/providers")) return json({ email: { id: "email", name: "Email", type: "email" } });
+        if (url.endsWith("/api/auth/csrf")) return json({ csrfToken: "test-token" });
+        if (url.endsWith("/api/auth/signin/email")) {
+          const body = new URLSearchParams(String(init?.body));
+          calls.push(`body email=${body.get("email")} callbackUrl=${body.get("callbackUrl")} json=${body.get("json")}`);
+          return json({ url: signinUrl });
+        }
+        if (url.endsWith("/api/auth/session")) return json({});
+        throw new Error(`unexpected fetch ${url}`);
+      }),
+    );
+    return calls;
+  }
+
+  it("says 'sent' for the verify-request answer, and posts the address and callbackUrl", async () => {
+    const calls = serverAnswers(VERIFY_REQUEST);
+    expect(await sendSignInLink("alice@example.com", "/t/abc", undefined)).toEqual({ kind: "sent", email: "alice@example.com" });
+    expect(calls).toContain("POST /api/auth/signin/email");
+    expect(calls).toContain("body email=alice@example.com callbackUrl=/t/abc json=true");
+  });
+
+  it("shows Default, not 'Check your email', for a rejected CSRF token", async () => {
+    serverAnswers(CSRF_REJECTED);
+    expect(await sendSignInLink("alice@example.com", "/", undefined)).toEqual({ kind: "error", code: "Default" });
+  });
+
+  it("passes EmailSignin on", async () => {
+    serverAnswers("http://localhost:3000/api/auth/error?error=EmailSignin");
+    expect(await sendSignInLink("alice@example.com", "/", undefined)).toEqual({ kind: "error", code: "EmailSignin" });
   });
 });
 

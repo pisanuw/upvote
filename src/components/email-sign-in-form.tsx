@@ -16,7 +16,7 @@ export type EmailFormStatus =
 export type SendEmailSignIn = (
   provider: "email",
   options: { email: string; callbackUrl: string; redirect: false },
-) => Promise<{ error?: string | null; ok?: boolean } | undefined>;
+) => Promise<{ error?: string | null; ok?: boolean; url?: string | null } | undefined>;
 
 const sendWithNextAuth: SendEmailSignIn = (provider, options) => signIn(provider, options);
 
@@ -30,6 +30,22 @@ export function isPlausibleEmail(value: string): boolean {
   if (parts.length !== 2) return false;
   const [local, domain] = parts;
   return local.length > 0 && domain.includes(".") && !/[\s"]/.test(value) && !domain.startsWith(".") && !domain.endsWith(".");
+}
+
+/**
+ * True when NextAuth answered with its "check your email" page, the only
+ * answer that means a link went out. A rejected CSRF token (a failed
+ * /api/auth/csrf fetch, blocked cookies) also answers 200 without an error
+ * code, but with .../api/auth/signin?csrf=true.
+ */
+export function isVerifyRequestUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const base = typeof window === "undefined" ? "http://localhost" : window.location.origin;
+  try {
+    return new URL(url, base).pathname.endsWith("/verify-request");
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -48,8 +64,8 @@ export async function sendSignInLink(
     const result = await send("email", { email: address, callbackUrl, redirect: false });
     if (!result) return { kind: "error", code: "Default" };
     if (result.error) return { kind: "error", code: result.error };
-    if (result.ok === false) return { kind: "error", code: "Default" };
-    return { kind: "sent", email: address };
+    if (result.ok && isVerifyRequestUrl(result.url)) return { kind: "sent", email: address };
+    return { kind: "error", code: "Default" };
   } catch {
     return { kind: "error", code: "Network" };
   }

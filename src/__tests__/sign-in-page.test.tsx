@@ -5,10 +5,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Session } from "next-auth";
 
-const state = vi.hoisted(() => ({ session: null as Session | null, pathname: "/" as string | null }));
+const state = vi.hoisted(() => ({ session: null as Session | null, pathname: "/" as string | null, search: "" }));
 
 vi.mock("@/auth", () => ({ auth: async () => state.session }));
-vi.mock("next/navigation", () => ({ usePathname: () => state.pathname }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => state.pathname,
+  useSearchParams: () => new URLSearchParams(state.search),
+}));
 
 import SignInPage from "@/app/signin/page";
 import { NavBarClient, magicLinkHref } from "@/components/nav-bar-client";
@@ -28,6 +31,7 @@ function hrefOf(html: string, text: string): string | undefined {
 beforeEach(() => {
   state.session = null;
   state.pathname = "/";
+  state.search = "";
 });
 
 describe("/signin, signed out", () => {
@@ -87,7 +91,7 @@ describe("/signin, signed in", () => {
     expect(html).not.toContain("Continue with Google");
   });
 
-  it.each(["//evil.example", "https://evil.example/", "/\\evil.example"])(
+  it.each(["//evil.example", "https://evil.example/", "/\\evil.example", "/..//evil.example", "/x/..//evil.example"])(
     "sends an unsafe callbackUrl (%s) to the home page instead",
     async (callbackUrl) => {
       const html = await renderPage({ callbackUrl });
@@ -104,7 +108,7 @@ describe("/signin, signed in", () => {
 
 describe("top bar, signed out", () => {
   function topBar() {
-    return renderToStaticMarkup(createElement(NavBarClient, { user: null, callbackUrl: "/" }));
+    return renderToStaticMarkup(createElement(NavBarClient, { user: null }));
   }
 
   it("links Magic link to the sign-in page, returning to the current page", () => {
@@ -112,6 +116,14 @@ describe("top bar, signed out", () => {
     const html = topBar();
     expect(hrefOf(html, "Magic link")).toBe("/signin?callbackUrl=/t/abc123");
     expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>).)*Magic link/);
+  });
+
+  it("keeps the query, so a thread view comes back to itself", () => {
+    state.pathname = "/t/abc123";
+    state.search = "root=c1";
+    expect(hrefOf(topBar(), "Magic link")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
+    expect(magicLinkHref("/t/abc123", "root=c1")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
+    expect(magicLinkHref("/..//evil.example", "")).toBe("/signin?callbackUrl=/");
   });
 
   it("keeps the compact look: envelope icon, label hidden on phones, round on small screens", () => {

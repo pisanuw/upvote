@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { signIn, signOut } from "next-auth/react";
 import { googleProviderId } from "@/lib/google-sign-in";
-import { signInHref } from "@/lib/callback-url";
+import { currentPageCallbackUrl, signInHref } from "@/lib/callback-url";
 import {
   COMPACT_BUTTON_CLASS,
   COMPACT_TEXT_CLASS,
@@ -12,7 +12,7 @@ import {
   SIGN_IN_LINK_CLASS,
 } from "@/components/google-sign-in-button";
 import { EMAIL_INPUT_ID, EnvelopeIcon } from "@/components/email-sign-in-form";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 
 type UserInfo = {
   id: string;
@@ -200,21 +200,23 @@ function AccountMenu({ user }: { user: UserInfo }) {
 
 /**
  * Where the top bar's "Magic link" goes: the sign-in page, returning to this
- * page afterwards. On the sign-in page itself it points at the email field,
- * which keeps the page's own callbackUrl.
+ * page (path and query) afterwards. On the sign-in page itself it points at
+ * the email field, which keeps the page's own callbackUrl.
  */
-export function magicLinkHref(pathname: string | null): string {
-  return pathname === "/signin" ? `#${EMAIL_INPUT_ID}` : signInHref(pathname ?? "/");
+export function magicLinkHref(pathname: string | null, search = ""): string {
+  return pathname === "/signin" ? `#${EMAIL_INPUT_ID}` : signInHref(currentPageCallbackUrl(pathname, search));
 }
 
-function SignInButtons({ callbackUrl }: { callbackUrl: string }) {
+/** Both top-bar buttons return to the current page (src/lib/callback-url.ts). */
+function SignInButtons({ search }: { search: string }) {
   const pathname = usePathname();
   const onSignInPage = pathname === "/signin";
+  const callbackUrl = currentPageCallbackUrl(pathname, search);
   return (
     <div className="flex items-center gap-2">
       <GoogleSignInButton text="Sign in with Google" compact onClick={() => signIn(googleProviderId(), { callbackUrl })} />
       <Link
-        href={magicLinkHref(pathname)}
+        href={magicLinkHref(pathname, search)}
         onClick={onSignInPage ? () => document.getElementById(EMAIL_INPUT_ID)?.focus() : undefined}
         className={`${SIGN_IN_LINK_CLASS} ${COMPACT_BUTTON_CLASS} gap-1.5`}
       >
@@ -225,18 +227,22 @@ function SignInButtons({ callbackUrl }: { callbackUrl: string }) {
   );
 }
 
+function SignInButtonsWithQuery() {
+  const search = useSearchParams()?.toString() ?? "";
+  return <SignInButtons search={search} />;
+}
+
 // ─── Export ───────────────────────────────────────────────────────────────────
 
-export function NavBarClient({
-  user,
-  callbackUrl,
-}: {
-  user: UserInfo | null;
-  callbackUrl: string;
-}) {
+export function NavBarClient({ user }: { user: UserInfo | null }) {
   return user ? (
     <AccountMenu user={user} />
   ) : (
-    <SignInButtons callbackUrl={callbackUrl} />
+    // Every route is rendered per request (the layout reads the session), so
+    // this does not suspend today; the boundary keeps a future static page
+    // building, with buttons that return to the path alone.
+    <Suspense fallback={<SignInButtons search="" />}>
+      <SignInButtonsWithQuery />
+    </Suspense>
   );
 }
