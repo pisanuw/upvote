@@ -4,6 +4,11 @@
 
 [build.environment]
   NODE_VERSION = "24"
+  # AUTH_SMTP_USER is the SMTP user name, not a secret, and its value is an
+  # ordinary word that the sign-in code uses in its own names, so Netlify's
+  # secret scan stopped the build on it. The scan still covers every other
+  # secret variable, AUTH_SMTP_PASS included.
+  SECRETS_SCAN_OMIT_KEYS = "AUTH_SMTP_USER"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

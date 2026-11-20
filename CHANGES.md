@@ -57,3 +57,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-20 [code] Sign-in by email sends a 6-digit code, not a link (mail scanners use links up): 10 min, 5 tries, only in the asking browser; per-address, per-IP and known-browser limits.
 2026-11-20 [code] UpvoteMe uses the footer's system font stack for all text instead of Space Grotesk; no web font loads for text. IBM Plex Mono stays for codes.
 2026-11-20 [code] The new-comment email goes to ADMIN_EMAIL (falls back to AUTH_SMTP_FROM), so the sender can become a no-reply @hintwise.org address; notifyTopicOwner renamed notifySiteOwner.
+2026-11-20 [code] netlify.toml skips AUTH_SMTP_USER in the secret scan: the SMTP user name is an ordinary word the sign-in code uses, and it stopped the deploy preview of #8.
