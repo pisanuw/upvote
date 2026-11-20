@@ -39,6 +39,7 @@ const mockCommentCreate = prisma.comment.create as ReturnType<typeof vi.fn>;
 const mockHeaders = headers as unknown as ReturnType<typeof vi.fn>;
 
 const OWNER = "owner@upvoteme.test";
+const SENDER = "noreply@upvoteme.test";
 const realEnv = { ...process.env };
 
 function postComment(code: string, fields: Record<string, string>) {
@@ -80,7 +81,8 @@ beforeEach(() => {
     AUTH_SMTP_PORT: "465",
     AUTH_SMTP_USER: "u",
     AUTH_SMTP_PASS: "p",
-    AUTH_SMTP_FROM: OWNER,
+    AUTH_SMTP_FROM: SENDER,
+    ADMIN_EMAIL: OWNER,
   });
   mockHeaders.mockResolvedValue(new Headers({ "x-forwarded-for": "203.0.113.7" }));
   mockTopicUpdate.mockResolvedValue({});
@@ -109,7 +111,7 @@ describe("POST /api/t/[code]/comments, the owner's mail", () => {
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     const [mail] = sent;
     expect(mail.smtp).toEqual({ host: "smtp.test", port: 465, auth: { user: "u", pass: "p" } });
-    expect(mail.envelope).toEqual({ from: OWNER, to: [OWNER] });
+    expect(mail.envelope).toEqual({ from: SENDER, to: [OWNER] });
     expect(subjectOf(mail.raw)).toBe('New comment on "Lunch poll"');
     expect(mail.text).toContain('Bea commented on your topic "Lunch poll":');
     expect(mail.text).toContain("Tacos, please.");
@@ -128,10 +130,46 @@ describe("POST /api/t/[code]/comments, the owner's mail", () => {
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     const [mail] = sent;
-    expect(mail.envelope).toEqual({ from: OWNER, to: [OWNER] });
+    expect(mail.envelope).toEqual({ from: SENDER, to: [OWNER] });
     const headerBlock = mail.raw.split("\r\n\r\n")[0];
     expect(headerBlock).not.toMatch(/^(Bcc|Cc):/im);
     expect(headerBlock).not.toContain("evil.test");
+  });
+
+  it("falls back to the sender address when ADMIN_EMAIL is unset", async () => {
+    const { sent } = fakeSmtp(nodemailer);
+    delete process.env.ADMIN_EMAIL;
+    mockTopicFindUnique.mockResolvedValue(topic("Lunch poll"));
+
+    const res = await postComment("abc123", { authorName: "Bea", body: "Tacos, please." });
+
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].envelope).toEqual({ from: SENDER, to: [SENDER] });
+  });
+
+  it("treats a blank ADMIN_EMAIL as unset", async () => {
+    const { sent } = fakeSmtp(nodemailer);
+    process.env.ADMIN_EMAIL = "  ";
+    mockTopicFindUnique.mockResolvedValue(topic("Lunch poll"));
+
+    await postComment("abc123", { authorName: "Bea", body: "Tacos, please." });
+
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0].envelope).toEqual({ from: SENDER, to: [SENDER] });
+  });
+
+  it("sends nothing when there is no sender, even with ADMIN_EMAIL set", async () => {
+    const { sent, spy } = fakeSmtp(nodemailer);
+    delete process.env.AUTH_SMTP_FROM;
+    mockTopicFindUnique.mockResolvedValue(topic("Lunch poll"));
+
+    const res = await postComment("abc123", { authorName: "Bea", body: "Tacos, please." });
+
+    expect(res.status).toBe(200);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(spy).not.toHaveBeenCalled();
+    expect(sent).toHaveLength(0);
   });
 
   it("sends nothing when SMTP is not configured", async () => {
