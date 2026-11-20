@@ -4,7 +4,7 @@
  * whose token exists fails, as Prisma's create does with P2002.
  */
 import type { VerificationToken } from "next-auth/adapters";
-import type { TokenStore } from "@/lib/sign-in-code-store";
+import { OLD_LINK_DAY_MS, OLD_LINK_TOKEN, type TokenStore } from "@/lib/sign-in-code-store";
 
 export function memoryTokenStore(rows: VerificationToken[] = []) {
   const takes: { identifier: string; token: string }[] = [];
@@ -25,6 +25,13 @@ export function memoryTokenStore(rows: VerificationToken[] = []) {
     async purgeExpired(now, prefix) {
       for (let i = rows.length - 1; i >= 0; i--) {
         if (rows[i].expires < now && rows[i].identifier.startsWith(prefix)) rows.splice(i, 1);
+      }
+    },
+    async voidOldLinks(identifier, now) {
+      const limit = now.getTime() + OLD_LINK_DAY_MS;
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const r = rows[i];
+        if (r.identifier === identifier && r.expires.getTime() <= limit && OLD_LINK_TOKEN.test(r.token)) rows.splice(i, 1);
       }
     },
     async countLive(identifier, at) {

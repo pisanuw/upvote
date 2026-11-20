@@ -3,7 +3,8 @@
  * (generateVerificationToken and sendVerificationRequest in
  * src/lib/auth-options.ts). The email carries the code and a plain link to
  * the sign-in page, never a link that signs anyone in, so a mail scanner
- * that opens links cannot use the code up.
+ * that opens links cannot use the code up. It says the code works only in
+ * the browser that asked for it.
  *
  * The code itself must never be logged or shown anywhere but in the email.
  */
@@ -11,7 +12,7 @@ import { randomInt } from "node:crypto";
 import nodemailer from "nodemailer";
 import type { SendVerificationRequestParams } from "next-auth/providers/email";
 import { safeCallbackUrl, signInHref } from "@/lib/callback-url";
-import { SIGN_IN_CODE_LENGTH, SIGN_IN_CODE_MINUTES } from "@/lib/sign-in-code";
+import { ENTER_CODE_LABEL, SIGN_IN_CODE_LENGTH, SIGN_IN_CODE_MINUTES } from "@/lib/sign-in-code";
 
 type RandomInt = (min: number, max: number) => number;
 
@@ -54,15 +55,20 @@ export interface SignInCodeEmail {
   html: string;
 }
 
+/** What the email says about where the code works: only in the browser that asked for it. */
+export const WHERE_TO_TYPE =
+  "Go back to the tab or browser where you asked for the code and type it there. It works only in that browser.";
+export const IF_TAB_CLOSED = `Closed that tab? Open the sign-in page in that same browser and choose "${ENTER_CODE_LABEL}".`;
+
 /** The email's subject and bodies. */
 export function signInCodeEmail({ code, signInUrl }: { code: string; signInUrl: string }): SignInCodeEmail {
   const expiry = `It expires in ${SIGN_IN_CODE_MINUTES} minutes and works once.`;
   const text = [
     `Your UpvoteMe sign-in code is ${code}`,
     "",
-    `Type it on the UpvoteMe sign-in page to finish signing in. ${expiry} Do not share it with anyone.`,
+    `${WHERE_TO_TYPE} ${expiry} Do not share it with anyone.`,
     "",
-    `Sign-in page: ${signInUrl}`,
+    `${IF_TAB_CLOSED} ${signInUrl}`,
     "",
     "If you did not ask to sign in to UpvoteMe, you can ignore this email.",
     "",
@@ -79,10 +85,10 @@ export function signInCodeEmail({ code, signInUrl }: { code: string; signInUrl: 
       <td style="padding: 8px 24px; font-size: 34px; font-weight: bold; letter-spacing: 6px; font-family: Menlo, Consolas, monospace;">${escapeHtml(code)}</td>
     </tr>
     <tr>
-      <td style="padding: 8px 24px; font-size: 15px; line-height: 22px; ${font}">Type it on the UpvoteMe sign-in page to finish signing in. ${expiry} Do not share it with anyone.</td>
+      <td style="padding: 8px 24px; font-size: 15px; line-height: 22px; ${font}">${escapeHtml(WHERE_TO_TYPE)} ${expiry} Do not share it with anyone.</td>
     </tr>
     <tr>
-      <td style="padding: 8px 24px; font-size: 15px; line-height: 22px; ${font}"><a href="${escapeHtml(signInUrl)}" style="color: #0b57d0;">Open the sign-in page</a></td>
+      <td style="padding: 8px 24px; font-size: 15px; line-height: 22px; ${font}">Closed that tab? Open the <a href="${escapeHtml(signInUrl)}" style="color: #0b57d0;">sign-in page</a> in that same browser and choose &#34;${escapeHtml(ENTER_CODE_LABEL)}&#34;.</td>
     </tr>
     <tr>
       <td style="padding: 8px 24px 24px; font-size: 13px; line-height: 20px; color: #475569; ${font}">If you did not ask to sign in to UpvoteMe, you can ignore this email.</td>

@@ -20,7 +20,8 @@ import type { SupabaseUser } from "./supabase-auth";
 import { codeCallbackRequest, codeCookie, newBrowserKey } from "./sign-in-code-route";
 import { bindCode, codeIdentifier, type CodeContext } from "./sign-in-code-store";
 import { sendSignInCodeEmail } from "./sign-in-code-email";
-import { normalizeEmailAddress } from "./sign-in-code";
+import { CODE_LIMITS, normalizeEmailAddress } from "./sign-in-code";
+import { issueKnownBrowser } from "./known-browser";
 import nodemailer from "nodemailer";
 import { NextRequest } from "next/server";
 import { fakeSmtp } from "@/__tests__/fake-smtp";
@@ -337,9 +338,12 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
   const nextAuthHash = (code: string) => createHash("sha256").update(`${code}${SECRET}`).digest("hex");
   const COOKIE = codeCookie(APP).name;
 
-  /** A browser: its sign-in code cookie (null until a code is stored for it). */
-  type Browser = { key: string | null };
-  const browser = (): Browser => ({ key: null });
+  /**
+   * A browser: its sign-in code cookie (null until a code is stored for it)
+   * and its known-browser cookie (null until it signs in).
+   */
+  type Browser = { key: string | null; known: string | null };
+  const browser = (): Browser => ({ key: null, known: null });
 
   /**
    * The app with an in-memory database. NextAuth's route handler sets
@@ -350,8 +354,11 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
   function app() {
     const memory = memoryAdapter();
     let fixed: string | null = null;
-    const options = (context?: CodeContext) => {
-      const built = { ...buildAuthOptions(memory.adapter, memory.codeStore, { ...env, ...smtpEnv }, context), secret: SECRET };
+    const options = (context?: CodeContext, onSignedIn?: (email: string) => void) => {
+      const built = {
+        ...buildAuthOptions(memory.adapter, memory.codeStore, { ...env, ...smtpEnv, AUTH_SECRET: SECRET }, context, onSignedIn),
+        secret: SECRET,
+      };
       if (fixed) {
         const email = built.providers.find((p) => p.id === "email") as unknown as { options: Record<string, unknown> };
         const code = fixed;
@@ -364,7 +371,13 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
   type App = ReturnType<typeof app>;
 
   /** CSRF, then POST /signin/email, as the form does; the route's cookie handling, as it does it. */
-  async function requestCode(site: App, from: Browser, email: string, client = "192.0.2.1", callbackUrl = `${APP}/t/abc`) {
+  async function requestCode(
+    site: App,
+    from: Browser,
+    email: string,
+    client: string | null = "192.0.2.1",
+    callbackUrl = `${APP}/t/abc`,
+  ) {
     const csrf = await AuthHandler<{ csrfToken: string }>({ req: { action: "csrf", method: "GET", origin: APP }, options: site.options() });
     const key = from.key ?? newBrowserKey();
     let stored = false;
@@ -377,7 +390,7 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
         cookies: cookieMap(csrf.cookies),
         body: { csrfToken: csrf.body!.csrfToken, email, callbackUrl },
       },
-      options: site.options({ kind: "request", browserKey: key, client, onStored: () => (stored = true) }),
+      options: site.options({ kind: "request", browserKey: key, client, knownBrowser: from.known, onStored: () => (stored = true) }),
     });
     if (stored) from.key = key;
     return res;
@@ -386,7 +399,8 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
   /**
    * The code form's POST, through the route's codeCallbackRequest and then
    * NextAuth's callback, carrying only the browser's code cookie (no
-   * NextAuth cookies), or no cookie at all.
+   * NextAuth cookies), or no cookie at all. As the route does, a sign-in
+   * that starts a session marks the browser known for that address.
    */
   async function typeCode(site: App, from: Browser, email: string, code: string, callbackUrl = "/t/abc") {
     const headers: Record<string, string> = { "Content-Type": "application/x-www-form-urlencoded", "Sec-Fetch-Site": "same-origin" };
@@ -400,7 +414,8 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
       APP,
     );
     if (response) return { redirect: ((await response.json()) as { url: string }).url, cookies: [] };
-    return AuthHandler({
+    let signedIn: string | null = null;
+    const res = await AuthHandler({
       req: {
         action: "callback",
         providerId: "email",
@@ -410,8 +425,12 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
         body: Object.fromEntries(new URLSearchParams(await request.text())),
         cookies: {},
       },
-      options: site.options({ kind: "code", browserKey }),
+      options: site.options({ kind: "code", browserKey }, (who) => (signedIn = who)),
     });
+    if (signedIn && cookieMap(res.cookies)["__Secure-next-auth.session-token"]) {
+      from.known = issueKnownBrowser(normalizeEmailAddress(signedIn), SECRET, new Date());
+    }
+    return res;
   }
 
   /** A GET to the email callback with an old-style link token, as the route passes it on. */
@@ -481,7 +500,7 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
     const code = codeIn(sent[0].text);
 
     expect((await typeCode(site, browser(), "alice@example.com", code)).redirect).toContain("error=Verification");
-    expect((await typeCode(site, { key: newBrowserKey() }, "alice@example.com", code)).redirect).toContain("error=Verification");
+    expect((await typeCode(site, { key: newBrowserKey(), known: null }, "alice@example.com", code)).redirect).toContain("error=Verification");
     expect(site.sessions).toHaveLength(0);
     expect((await typeCode(site, laptop, "alice@example.com", code)).redirect).toBe(`${APP}/t/abc`);
   });
@@ -671,17 +690,122 @@ describe("Sign-in by emailed code, end to end in NextAuth and nodemailer", () =>
     });
   });
 
-  it("answers a client over its own limit with EmailCodeClientLimit", async () => {
+  it(`answers a client over its own limit (${CODE_LIMITS.client.hour} an hour, all addresses) with EmailCodeClientLimit`, async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-20T10:00:00Z"));
     const { sent } = fakeSmtp(nodemailer);
     const site = app();
-    for (let i = 0; i < 50; i++) await requestCode(site, browser(), `user${i}@example.com`, "203.0.113.66");
-    expect(sent).toHaveLength(50);
+    // The client's earlier requests this hour, for other addresses (sending 299 real codes is slow).
+    for (let i = 0; i < CODE_LIMITS.client.hour - 1; i++) {
+      site.tokens.push({ identifier: "Sign-in code client: 203.0.113.66", token: `earlier ${i}`, expires: new Date(Date.now() + 86_340_000) });
+    }
+    expect((await requestCode(site, browser(), "last@example.com", "203.0.113.66")).redirect).toContain("/verify-request");
+    const before = site.tokens.length;
     expect((await requestCode(site, browser(), "late@example.com", "203.0.113.66")).redirect).toBe(
       `${APP}/api/auth/error?error=EmailCodeClientLimit`,
     );
-    expect(sent).toHaveLength(50);
+    expect(sent).toHaveLength(1);
+    expect(site.tokens).toHaveLength(before);
+    // Another client is not affected.
+    expect((await requestCode(site, browser(), "late@example.com", "198.51.100.7")).redirect).toContain("/verify-request");
+  });
+
+  it("without Netlify's client header, the per-address limits still apply", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const { sent } = fakeSmtp(nodemailer);
+    const site = app();
+    const at = (minutes: number) => vi.setSystemTime(new Date(Date.parse("2026-11-20T10:00:00Z") + minutes * 60_000));
+    for (let i = 0; i < CODE_LIMITS.address.hour; i++) {
+      at(2 * i);
+      expect((await requestCode(site, browser(), "alice@example.com", null)).redirect).toContain("/verify-request");
+    }
+    at(20);
+    expect((await requestCode(site, browser(), "alice@example.com", null)).redirect).toBe(`${APP}/api/auth/error?error=EmailCodeLimit`);
+    expect(sent).toHaveLength(CODE_LIMITS.address.hour);
+    expect(site.tokens.some((t) => t.identifier.startsWith("Sign-in code client"))).toBe(false);
+  });
+
+  describe("a browser that has signed in as the address (known browser)", () => {
+    const at = (minutes: number) => vi.setSystemTime(new Date(Date.parse("2026-11-20T10:00:00Z") + minutes * 60_000));
+    const ok = (res: { redirect?: string }) => expect(res.redirect).toContain("/verify-request");
+    const limit = (res: { redirect?: string }) => expect(res.redirect).toBe(`${APP}/api/auth/error?error=EmailCodeLimit`);
+
+    /** The victim signs in once on the laptop, then a stranger uses up the address's day from three /64s. */
+    async function attacked() {
+      vi.useFakeTimers({ toFake: ["Date"] });
+      const mail = fakeSmtp(nodemailer);
+      const site = app();
+      const laptop = browser();
+      at(0);
+      ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      expect((await typeCode(site, laptop, "alice@example.com", codeIn(mail.sent[0].text))).redirect).toBe(`${APP}/t/abc`);
+      expect(laptop.known).toMatch(/^v1\.\d+\.[A-Za-z0-9_-]{43}$/);
+
+      // 11 requests, each from a fresh browser, a little over a minute apart:
+      // with the victim's, the address's 6 an hour and then its 12 a day.
+      const nets = ["2001:db8:0:a::/64", "2001:db8:0:b::/64", "2001:db8:0:c::/64"];
+      const plan: [number, string][] = [
+        [2, nets[0]], [4, nets[0]], [6, nets[0]], [8, nets[1]], [10, nets[1]],
+        [70, nets[0]], [72, nets[1]], [74, nets[1]], [76, nets[2]], [78, nets[2]], [80, nets[2]],
+      ];
+      for (const [m, net] of plan) {
+        at(m);
+        ok(await requestCode(site, browser(), "alice@example.com", net));
+      }
+      return { site, laptop, mail };
+    }
+
+    it("still gets a code and signs in after a stranger used up the address's codes for the day; a new browser does not", async () => {
+      const { site, laptop, mail } = await attacked();
+      at(82);
+      limit(await requestCode(site, browser(), "alice@example.com", "2001:db8:0:d::/64"));
+      limit(await requestCode(site, browser(), "alice@example.com", "198.51.100.7"));
+      at(12 * 60);
+      limit(await requestCode(site, browser(), "alice@example.com", "2001:db8:0:e::/64"));
+      expect(mail.sent).toHaveLength(12);
+
+      ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      expect(mail.sent).toHaveLength(13);
+      expect((await typeCode(site, laptop, "alice@example.com", codeIn(mail.sent[12].text))).redirect).toBe(`${APP}/t/abc`);
+      expect(site.sessions).toHaveLength(2);
+    });
+
+    it(`has its own ${CODE_LIMITS.knownBrowser.hour} an hour and ${CODE_LIMITS.knownBrowser.day} a day, and still waits a minute between codes`, async () => {
+      const { site, laptop, mail } = await attacked();
+      const sentBefore = mail.sent.length;
+      at(100);
+      ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      expect((await requestCode(site, laptop, "alice@example.com", "198.51.100.7")).redirect).toBe(
+        `${APP}/api/auth/error?error=EmailCodeWait`,
+      );
+      at(102);
+      ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      at(104);
+      ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      at(106);
+      limit(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      for (const m of [170, 172, 174]) {
+        at(m);
+        ok(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      }
+      // The last code signs in, in the browser that asked for it (a copy, so
+      // the new known-browser cookie that sign-in sets is not used below).
+      at(175);
+      expect((await typeCode(site, { ...laptop }, "alice@example.com", codeIn(mail.sent.at(-1)!.text))).redirect).toBe(`${APP}/t/abc`);
+      at(240);
+      limit(await requestCode(site, laptop, "alice@example.com", "198.51.100.7"));
+      expect(mail.sent.length - sentBefore).toBe(CODE_LIMITS.knownBrowser.day);
+    });
+
+    it("is known only for the address it signed in as", async () => {
+      const { site, laptop } = await attacked();
+      at(100);
+      expect(laptop.known).not.toBeNull();
+      // A stranger's own cookie (for mallory), or one made with another secret, does not help.
+      limit(await requestCode(site, { key: null, known: issueKnownBrowser("mallory@example.com", SECRET, new Date()) }, "alice@example.com", "2001:db8:0:f::/64"));
+      limit(await requestCode(site, { key: null, known: issueKnownBrowser("alice@example.com", "another-secret", new Date()) }, "alice@example.com", "2001:db8:0:f::/64"));
+      ok(await requestCode(site, browser(), "bob@example.com", "2001:db8:0:f::/64"));
+    });
   });
 
   it.each(["a <alice@example.com>", "alice@example.com (x)", "x@y.co,alice@example.com", "alice@example.com;x.co"])(

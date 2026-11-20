@@ -13,11 +13,12 @@ export const authOptions: NextAuthOptions = buildAuthOptions(PrismaAdapter(prism
 export const authHandler = NextAuth(authOptions);
 
 /**
- * NextAuth's handler for one sign-in code request, which needs to know the
- * asking browser and client (src/lib/sign-in-code-route.ts).
+ * NextAuth's handler for one request that needs to know about the asking
+ * browser (a sign-in code request or try, src/lib/sign-in-code-route.ts),
+ * or to hear who signed in (to mark the browser as known for that address).
  */
-export function authHandlerFor(context: CodeContext) {
-  return NextAuth(buildAuthOptions(PrismaAdapter(prisma), codeStore, process.env, context));
+export function authHandlerFor(context: CodeContext | undefined, onSignedIn?: (email: string) => void) {
+  return NextAuth(buildAuthOptions(PrismaAdapter(prisma), codeStore, process.env, context, onSignedIn));
 }
 
 export function auth() {

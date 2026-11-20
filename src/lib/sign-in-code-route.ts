@@ -5,7 +5,11 @@
  *   random key in an httpOnly cookie, set only when a code bound to it was
  *   stored. A browser that already has a key keeps it, so its new code
  *   replaces its old one. The client's network address is read from the
- *   header Netlify sets (CLIENT_IP_HEADER) for the request limits.
+ *   header Netlify sets (CLIENT_IP_HEADER) for the request limits, and the
+ *   browser's known-browser cookie, if any, is passed on to be checked
+ *   against the address (src/lib/known-browser.ts).
+ * - A sign-in that creates a session marks the browser as known for that
+ *   address (knownBrowserSetCookie).
  * - Typing a code (POST /api/auth/callback/email): the form posts the address
  *   and code in the body, so a code never sits in a URL (server logs, browser
  *   history). codeCallbackRequest moves them into the query of an in-process
@@ -21,6 +25,7 @@ import { isIP } from "node:net";
 import { NextRequest } from "next/server";
 import { safeCallbackUrl } from "@/lib/callback-url";
 import { SIGN_IN_CODE_MINUTES, normalizeEmailAddress, normalizeSignInCode } from "@/lib/sign-in-code";
+import { issueKnownBrowser, knownBrowserCookie, knownBrowserSecret } from "@/lib/known-browser";
 
 /** NextAuth's catch-all segments for the Email provider's callback. */
 export function isEmailCallback(segments: string[] | undefined): boolean {
@@ -43,14 +48,23 @@ export function refusedLinkResponse(): Response {
 }
 
 /**
- * The cookie that ties a code to the browser that asked for it. Like
- * NextAuth's own cookies, it is Secure, with the __Host- prefix (this host
- * only, so no other subdomain can set it), when the site is served over
- * https (NEXTAUTH_URL).
+ * True when the site is served over https: NEXTAUTH_URL says so (as for
+ * NextAuth's own cookies), or, should NEXTAUTH_URL be unset or plain http
+ * behind https, the request itself came over https. Cookies are then Secure,
+ * with the __Host- prefix (this host only, so no other subdomain can set
+ * them).
  */
-export function codeCookie(nextAuthUrl: string | undefined) {
-  const secure = (nextAuthUrl ?? "").startsWith("https://");
-  const name = secure ? "__Host-upvoteme.signin-code" : "upvoteme.signin-code";
+export function isSecureSite(nextAuthUrl: string | undefined, requestUrl?: string): boolean {
+  return [nextAuthUrl, requestUrl].some((url) => (url ?? "").startsWith("https://"));
+}
+
+/** Both names the code cookie can have (the sign-in page only needs to know one is there). */
+export const CODE_COOKIE_NAMES = ["__Host-upvoteme.signin-code", "upvoteme.signin-code"] as const;
+
+/** The cookie that ties a code to the browser that asked for it. */
+export function codeCookie(nextAuthUrl: string | undefined, requestUrl?: string) {
+  const secure = isSecureSite(nextAuthUrl, requestUrl);
+  const name = secure ? CODE_COOKIE_NAMES[0] : CODE_COOKIE_NAMES[1];
   return {
     name,
     secure,
@@ -67,8 +81,41 @@ export function newBrowserKey(): string {
 
 /** The browser's key from its cookie, or null when it has none (or a malformed one). */
 export function browserKeyOf(req: NextRequest, nextAuthUrl: string | undefined): string | null {
-  const value = req.cookies.get(codeCookie(nextAuthUrl).name)?.value;
+  const value = req.cookies.get(codeCookie(nextAuthUrl, req.url).name)?.value;
   return value && BROWSER_KEY.test(value) ? value : null;
+}
+
+/** The browser's known-browser cookie as sent (checked later, against the address), or null. */
+export function knownBrowserOf(req: NextRequest, nextAuthUrl: string | undefined): string | null {
+  return req.cookies.get(knownBrowserCookie(isSecureSite(nextAuthUrl, req.url)).name)?.value ?? null;
+}
+
+/** True when NextAuth's answer starts a session (it sets a non-empty session-token cookie). */
+export function startsSession(res: Response): boolean {
+  return res.headers.getSetCookie().some((c) => /^(?:__Secure-)?next-auth\.session-token=[^;]+/.test(c));
+}
+
+/**
+ * The known-browser cookie for a sign-in that just created a session as
+ * `email`, or null (no sign-in, no session, an address the code flow would
+ * not store, or no secret).
+ */
+export function knownBrowserSetCookie(
+  res: Response,
+  email: string | null,
+  req: NextRequest,
+  env: Record<string, string | undefined>,
+  now: Date,
+): string | null {
+  const secret = knownBrowserSecret(env);
+  if (!email || !secret || !startsSession(res)) return null;
+  let address: string;
+  try {
+    address = normalizeEmailAddress(email);
+  } catch {
+    return null;
+  }
+  return knownBrowserCookie(isSecureSite(env.NEXTAUTH_URL, req.url)).serialize(issueKnownBrowser(address, secret, now));
 }
 
 /**
@@ -92,19 +139,27 @@ function ipv6Network(ip: string): string {
     .join(":")}::/64`;
 }
 
+let warnedNoClient = false;
+
 /**
  * The client a code request counts against: its IPv4 address, or its IPv6
  * /64 (one household or device can hold a whole /64). Without a usable
- * header (local runs), every request shares "unknown", which limits more,
- * not less.
+ * header (local runs; on Netlify it is always set) it is null: the
+ * per-client limits are skipped, and the per-address and known-browser ones
+ * still apply. That is logged once per function instance, with no address
+ * or code, so the gap shows in Netlify's logs.
  */
-export function clientOf(headers: Headers): string {
+export function clientOf(headers: Headers): string | null {
   const ip = (headers.get(CLIENT_IP_HEADER) ?? "").trim();
   const mapped = ip.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i);
   if (mapped && isIP(mapped[1]) === 4) return mapped[1];
   if (isIP(ip) === 4) return ip;
   if (isIP(ip) === 6) return ipv6Network(ip);
-  return "unknown";
+  if (!warnedNoClient) {
+    warnedNoClient = true;
+    console.warn(`[sign-in code] No usable ${CLIENT_IP_HEADER} header: per-client limits on code requests are off.`);
+  }
+  return null;
 }
 
 /** The answer NextAuth gives a failed code (with json=true), for input that never reaches it. */

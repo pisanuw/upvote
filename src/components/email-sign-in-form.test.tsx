@@ -3,13 +3,17 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   CODE_CALLBACK_PATH,
+  CODE_STEP_STORAGE_KEY,
   EmailSignInForm,
   EmailSignInFormView,
   afterFailedCode,
   focusSignInField,
+  forgetCodeStep,
   isPlausibleEmail,
   isVerifyRequestUrl,
   requestSignInCode,
+  restoreCodeStep,
+  saveCodeStep,
   signInAnswerError,
   verifySignInCode,
   type CodeStep,
@@ -20,12 +24,14 @@ import {
 
 const noop = () => {};
 
-function view(status: EmailFormStatus, email = "alice@example.com", code = "") {
+function view(status: EmailFormStatus, email = "alice@example.com", code = "", canEnterCode = false) {
   return renderToStaticMarkup(
     createElement(EmailSignInFormView, {
       email,
       code,
       status,
+      canEnterCode,
+      onHaveCode: noop,
       onEmailChange: noop,
       onCodeChange: noop,
       onSubmit: noop,
@@ -307,6 +313,14 @@ describe("EmailSignInFormView, email step", () => {
     expect(html).toContain('<div role="status" aria-live="polite"></div>');
   });
 
+  it("offers to type a code asked for in this browser only when the page saw this browser's code cookie", () => {
+    const html = view({ kind: "idle" }, "", "", true);
+    expect(html).toMatch(/<button type="button"[^>]*>Type a code I asked for in this browser<\/button>/);
+    expect(html).not.toContain("already have");
+    expect(view({ kind: "sending" }, "a@b.co", "", true)).toMatch(/<button type="button" disabled=""[^>]*>Type a code I asked for/);
+    expect(view({ kind: "idle" }, "")).not.toContain("Type a code");
+  });
+
   it("disables the button and says so while sending", () => {
     const html = view({ kind: "sending" });
     expect(html).toMatch(/<button type="submit" disabled=""[^>]*>.*Sending code…<\/button>/);
@@ -387,6 +401,15 @@ describe("EmailSignInFormView, code step", () => {
     expect(view(codeStep({ note: "resent" }))).toContain("Earlier codes no longer work.");
   });
 
+  it("back at a code asked for earlier (a reload, or the entry on the email step), says it works only in that browser", () => {
+    const html = view(codeStep({ note: "entered" }));
+    expect(html).toContain("Enter your code</h2>");
+    expect(html).toContain("Type the 6-digit code from the email we sent to <strong");
+    expect(html).toContain("It works only in the browser where you asked for it, for 10 minutes.");
+    expect(html).not.toContain("Check your email");
+    expect(html).toMatch(/<button type="button"[^>]*>Send a new code<\/button>/);
+  });
+
   it("disables the buttons and says so while checking, resending, and after signing in", () => {
     const verifying = view(codeStep({ busy: "verifying" }));
     expect(verifying).toMatch(/<button type="submit" disabled=""[^>]*>Signing in…<\/button>/);
@@ -412,6 +435,72 @@ describe("EmailSignInForm", () => {
     expect(html).toContain("Email me a sign-in code");
     expect(html).not.toContain('id="signin-code"');
     expect(html).not.toContain('role="alert"');
+    expect(html).not.toContain("Type a code I asked for in this browser");
+  });
+
+  it("offers the entry when this browser has a code waiting", () => {
+    const html = renderToStaticMarkup(createElement(EmailSignInForm, { callbackUrl: "/t/abc", hasPendingCode: true }));
+    expect(html).toContain("Type a code I asked for in this browser</button>");
+  });
+});
+
+describe("keeping the code step across a reload of the tab", () => {
+  function memoryStorage() {
+    const items = new Map<string, string>();
+    return {
+      items,
+      getItem: (k: string) => items.get(k) ?? null,
+      setItem: (k: string, v: string) => void items.set(k, v),
+      removeItem: (k: string) => void items.delete(k),
+    };
+  }
+  const T = Date.parse("2026-11-20T10:00:00Z");
+
+  it("keeps the address and the time only, never a code", () => {
+    const storage = memoryStorage();
+    saveCodeStep(storage, "alice@example.com", T);
+    expect([...storage.items]).toEqual([[CODE_STEP_STORAGE_KEY, JSON.stringify({ email: "alice@example.com", at: T })]]);
+    expect(restoreCodeStep(storage, T + 60_000)).toBe("alice@example.com");
+  });
+
+  it("forgets it after the code's 10 minutes, and when told to", () => {
+    const storage = memoryStorage();
+    saveCodeStep(storage, "alice@example.com", T);
+    expect(restoreCodeStep(storage, T + 10 * 60_000 - 1)).toBe("alice@example.com");
+    expect(restoreCodeStep(storage, T + 10 * 60_000)).toBeNull();
+    expect(restoreCodeStep(storage, T - 1)).toBeNull();
+    forgetCodeStep(storage);
+    expect(storage.items.size).toBe(0);
+    expect(restoreCodeStep(storage, T)).toBeNull();
+  });
+
+  it.each([["not json"], [JSON.stringify({ email: "nope", at: T })], [JSON.stringify({ email: "a@b.co" })], ["42"]])(
+    "ignores a saved value it does not understand: %s",
+    (value) => {
+      const storage = memoryStorage();
+      storage.setItem(CODE_STEP_STORAGE_KEY, value);
+      expect(restoreCodeStep(storage, T)).toBeNull();
+    },
+  );
+
+  it("works on without storage, or with storage that throws", () => {
+    const blocked = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+      removeItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    expect(() => saveCodeStep(blocked, "alice@example.com", T)).not.toThrow();
+    expect(restoreCodeStep(blocked, T)).toBeNull();
+    expect(() => forgetCodeStep(blocked)).not.toThrow();
+    expect(() => saveCodeStep(null, "alice@example.com", T)).not.toThrow();
+    expect(restoreCodeStep(null, T)).toBeNull();
+    expect(() => forgetCodeStep(null)).not.toThrow();
   });
 });
 

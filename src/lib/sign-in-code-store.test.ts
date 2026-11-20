@@ -37,7 +37,7 @@ function setup(memory = memoryTokenStore()) {
   /** Issues `code` to `identifier`, asked for from the browser holding `browserKey`; true when stored. */
   async function issue(identifier: string, code: string, browserKey = VICTIM) {
     let stored = false;
-    await adapter({ kind: "request", browserKey, client: "192.0.2.1", onStored: () => (stored = true) }).createVerificationToken!({
+    await adapter({ kind: "request", browserKey, client: "192.0.2.1", knownBrowser: null, onStored: () => (stored = true) }).createVerificationToken!({
       identifier,
       token: nextAuthHash(code),
       expires: new Date(now.getTime() + 10 * MINUTE),
@@ -150,24 +150,40 @@ describe("withSignInCodes: storing codes", () => {
     expect(await late.tryCode(ALICE, "123456")).toBeNull();
   });
 
-  it("purges only expired rows of its own namespace, and the address's own old rows", async () => {
+  it("purges only expired rows of its own namespace", async () => {
     const { rows, issue, advance } = setup();
     const past = new Date(T0.getTime() - 1);
     rows.push(
       { identifier: "someone@other-app.test", token: "other-app-expired", expires: past },
       { identifier: "other-app-identifier", token: "other-app-live", expires: new Date(T0.getTime() + HOUR) },
       { identifier: `${NAMESPACE} attempt: x@y.co abc`, token: "ours-expired", expires: past },
-      { identifier: ALICE, token: "alice-old-link", expires: new Date(T0.getTime() + HOUR) },
     );
     await issue(ALICE, "999999");
-    expect(rows.map((r) => r.token)).toEqual([
-      "other-app-expired",
-      "other-app-live",
-      bindCode(ALICE, VICTIM, nextAuthHash("999999")),
-    ]);
+    expect(rows.map((r) => r.token)).toEqual(["other-app-expired", "other-app-live", bindCode(ALICE, VICTIM, nextAuthHash("999999"))]);
     advance(11 * MINUTE);
     await issue("dave@example.com", "888888");
     expect(rows.map((r) => r.identifier)).toEqual(["someone@other-app.test", "other-app-identifier", codeIdentifier("dave@example.com", VICTIM)]);
+  });
+
+  it("voids only the address's rows shaped like a NextAuth link: 64 hex characters, expiring within a day", async () => {
+    const { rows, issue } = setup();
+    const soon = new Date(T0.getTime() + HOUR);
+    const later = new Date(T0.getTime() + 2 * 24 * HOUR);
+    rows.push(
+      { identifier: ALICE, token: nextAuthHash("old-link"), expires: soon }, // voided
+      { identifier: ALICE, token: "not-a-link-shaped-token", expires: soon }, // kept: another shape
+      { identifier: ALICE, token: "ABCDEF".repeat(10) + "ABCD", expires: soon }, // kept: upper case
+      { identifier: ALICE, token: nextAuthHash("long-lived"), expires: later }, // kept: lives longer than a link
+      { identifier: "bob@example.com", token: nextAuthHash("bobs-link"), expires: soon }, // kept: another address
+    );
+    await issue(ALICE, "123456");
+    expect(rows.map((r) => r.token)).toEqual([
+      "not-a-link-shaped-token",
+      "ABCDEF".repeat(10) + "ABCD",
+      nextAuthHash("long-lived"),
+      nextAuthHash("bobs-link"),
+      bindCode(ALICE, VICTIM, nextAuthHash("123456")),
+    ]);
   });
 
   it("still accepts a link sent before codes (NextAuth's bare hash under the address) until it expires", async () => {
@@ -349,34 +365,34 @@ describe("claimCodeRequest", () => {
 
   it("allows one code a minute per address", async () => {
     const { store } = memoryTokenStore();
-    expect(await claimCodeRequest(store, ALICE, "192.0.2.1", T0)).toBe("ok");
-    expect(await claimCodeRequest(store, ALICE, "192.0.2.2", new Date(T0.getTime() + 59_000))).toBe("wait");
-    expect(await claimCodeRequest(store, "bob@example.com", "192.0.2.1", new Date(T0.getTime() + 59_000))).toBe("ok");
-    expect(await claimCodeRequest(store, ALICE, "192.0.2.1", new Date(T0.getTime() + 60_001))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "192.0.2.1", knownBrowser: null }, T0)).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "192.0.2.2", knownBrowser: null }, new Date(T0.getTime() + 59_000))).toBe("wait");
+    expect(await claimCodeRequest(store, "bob@example.com", { client: "192.0.2.1", knownBrowser: null }, new Date(T0.getTime() + 59_000))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "192.0.2.1", knownBrowser: null }, new Date(T0.getTime() + 60_001))).toBe("ok");
   });
 
   it("lets only one of several requests at the same moment through", async () => {
     const { store } = memoryTokenStore();
-    const verdicts = await Promise.all([1, 2, 3].map((i) => claimCodeRequest(store, ALICE, `192.0.2.${i}`, T0)));
+    const verdicts = await Promise.all([1, 2, 3].map((i) => claimCodeRequest(store, ALICE, { client: `192.0.2.${i}`, knownBrowser: null }, T0)));
     expect(verdicts.sort()).toEqual(["ok", "wait", "wait"]);
   });
 
   it("allows one client at most 3 codes an hour and 4 a day for one address, so it cannot use up the address's allowance", async () => {
     const { store } = memoryTokenStore();
-    for (const m of [0, 2, 4]) expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(m))).toBe("ok");
-    expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(6))).toBe("limit");
+    for (const m of [0, 2, 4]) expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(m))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(6))).toBe("limit");
     // Another client still gets a code for the same address.
-    expect(await claimCodeRequest(store, ALICE, "203.0.113.9", at(8))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "203.0.113.9", knownBrowser: null }, at(8))).toBe("ok");
     // The 4th from the first client an hour later, then its day is used up.
-    expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(61))).toBe("ok");
-    expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(150))).toBe("limit");
-    expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(24 * 60 + 1))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(61))).toBe("ok");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(150))).toBe("limit");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(24 * 60 + 1))).toBe("ok");
   });
 
   it("allows an address at most 6 codes an hour and 12 a day, from any clients", async () => {
     const { store } = memoryTokenStore();
     let client = 0;
-    const next = (m: number) => claimCodeRequest(store, ALICE, `192.0.2.${++client}`, at(m));
+    const next = (m: number) => claimCodeRequest(store, ALICE, { client: `192.0.2.${++client}`, knownBrowser: null }, at(m));
     for (const m of [0, 2, 4, 6, 8, 10]) expect(await next(m)).toBe("ok");
     expect(await next(12)).toBe("limit");
     for (const m of [61, 63, 65, 67, 69, 71]) expect(await next(m)).toBe("ok");
@@ -384,45 +400,105 @@ describe("claimCodeRequest", () => {
     expect(await next(24 * 60 + 1)).toBe("ok");
   });
 
-  it("allows one client at most 50 codes an hour across addresses", async () => {
-    const { store } = memoryTokenStore();
-    for (let i = 0; i < 50; i++) expect(await claimCodeRequest(store, `user${i}@example.com`, "198.51.100.7", at(i / 60))).toBe("ok");
-    expect(await claimCodeRequest(store, "late@example.com", "198.51.100.7", at(30))).toBe("client-limit");
-    expect(await claimCodeRequest(store, "late@example.com", "203.0.113.9", at(30))).toBe("ok");
-    expect(await claimCodeRequest(store, "late2@example.com", "198.51.100.7", at(61))).toBe("ok");
+  it("allows one client at most 300 codes an hour across addresses", async () => {
+    const { store, rows } = memoryTokenStore();
+    // 299 earlier requests from this client, in the last hour.
+    for (let i = 0; i < 299; i++) rows.push({ identifier: "Sign-in code client: 198.51.100.7", token: `seed ${i}`, expires: at(24 * 60 - 30) });
+    const ask = (address: string, client: string, m: number) => claimCodeRequest(store, address, { client, knownBrowser: null }, at(m));
+    expect(await ask("user1@example.com", "198.51.100.7", 0)).toBe("ok");
+    expect(await ask("late@example.com", "198.51.100.7", 1)).toBe("client-limit");
+    expect(await ask("late@example.com", "203.0.113.9", 1)).toBe("ok");
+    expect(await ask("late2@example.com", "198.51.100.7", 61)).toBe("ok");
   });
 
-  it("never lets a burst from one client past its limit", async () => {
-    const { store } = memoryTokenStore();
+  it("allows one client at most 1000 codes a day", async () => {
+    const { store, rows } = memoryTokenStore();
+    // 999 earlier requests from this client over the last day, none in the last hour.
+    for (let i = 0; i < 999; i++) rows.push({ identifier: "Sign-in code client: 198.51.100.7", token: `seed ${i}`, expires: at(60) });
+    const ask = (address: string, m: number) => claimCodeRequest(store, address, { client: "198.51.100.7", knownBrowser: null }, at(m));
+    expect(await ask("one@example.com", 0)).toBe("ok");
+    expect(await ask("two@example.com", 1)).toBe("client-limit");
+  });
+
+  it("a burst from one client over its limit leaves no rows behind, and the client can ask again a minute later", async () => {
+    const { store, rows } = memoryTokenStore();
+    for (let i = 0; i < 290; i++) rows.push({ identifier: "Sign-in code client: 198.51.100.7", token: `seed ${i}`, expires: at(24 * 60 - 30) });
+    const before = rows.length;
     const verdicts = await Promise.all(
-      Array.from({ length: 80 }, (_, i) => claimCodeRequest(store, `user${i}@example.com`, "198.51.100.7", T0)),
+      Array.from({ length: 40 }, (_, i) => claimCodeRequest(store, `user${i}@example.com`, { client: "198.51.100.7", knownBrowser: null }, T0)),
     );
-    expect(verdicts.filter((v) => v === "ok").length).toBeLessThanOrEqual(50);
+    const ok = verdicts.filter((v) => v === "ok").length;
+    expect(ok).toBeLessThanOrEqual(10);
     expect(verdicts.every((v) => v === "ok" || v === "client-limit")).toBe(true);
-    expect(await claimCodeRequest(store, "late@example.com", "198.51.100.7", at(30))).toBe("client-limit");
-    expect(await claimCodeRequest(store, "late@example.com", "203.0.113.9", at(30))).toBe("ok");
-    // A request refused for the client leaves the address free to ask from elsewhere.
-    expect(await claimCodeRequest(store, "user79@example.com", "203.0.113.9", at(30))).toBe("ok");
+    // Each request that went through left 3 rows (client, address, client and address) and its minute; a refused one, none.
+    expect(rows.length - before).toBe(ok * 4);
+    expect(rows.filter((r) => r.identifier.startsWith("Sign-in code wait")).length).toBe(ok);
+    expect(await claimCodeRequest(store, "later@example.com", { client: "198.51.100.7", knownBrowser: null }, at(1))).toBe("ok");
   });
 
-  it("allows one client at most 200 codes a day", async () => {
-    const { store } = memoryTokenStore();
-    let n = 0;
-    for (let hour = 0; hour < 4; hour++) {
-      for (let i = 0; i < 50; i++) {
-        expect(await claimCodeRequest(store, `u${n++}@example.com`, "198.51.100.7", at(hour * 61))).toBe("ok");
-      }
-    }
-    expect(await claimCodeRequest(store, "one-more@example.com", "198.51.100.7", at(5 * 61))).toBe("client-limit");
+  it("skips the per-client limits without a client, and keeps the per-address ones", async () => {
+    const { store, rows } = memoryTokenStore();
+    const ask = (m: number) => claimCodeRequest(store, ALICE, { client: null, knownBrowser: null }, at(m));
+    for (const m of [0, 2, 4, 6, 8, 10]) expect(await ask(m)).toBe("ok");
+    expect(await ask(12)).toBe("limit");
+    expect(rows.some((r) => r.identifier.startsWith("Sign-in code client"))).toBe(false);
+    expect(rows.some((r) => r.identifier.includes(" from "))).toBe(false);
   });
 
   it("writes nothing for a refused request", async () => {
     const { store, rows } = memoryTokenStore();
-    for (const m of [0, 2, 4]) await claimCodeRequest(store, ALICE, "198.51.100.7", at(m));
+    for (const m of [0, 2, 4]) await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(m));
     const before = rows.length;
-    for (let i = 0; i < 20; i++) expect(await claimCodeRequest(store, ALICE, "198.51.100.7", at(5))).toBe("limit");
-    expect(await claimCodeRequest(store, ALICE, "203.0.113.9", at(4.5))).toBe("wait");
+    for (let i = 0; i < 20; i++) expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(5))).toBe("limit");
+    expect(await claimCodeRequest(store, ALICE, { client: "203.0.113.9", knownBrowser: null }, at(4.5))).toBe("wait");
     expect(rows).toHaveLength(before);
+  });
+});
+
+describe("claimCodeRequest: a known browser has its own allowance", () => {
+  const at = (minutes: number) => new Date(T0.getTime() + minutes * MINUTE);
+
+  /** The round-2 attack: the address's allowance used up from many /64s, one request a minute. */
+  async function exhaust(store: TokenStore, address: string, from: number, count: number) {
+    for (let i = 0; i < count; i++) {
+      await claimCodeRequest(store, address, { client: `2001:db8:0:${i}::/64`, knownBrowser: null }, at(from + i * 1.1));
+    }
+  }
+
+  it("still gets a code once strangers have used up the address's hour and day", async () => {
+    const { store } = memoryTokenStore();
+    await exhaust(store, ALICE, 0, 12);
+    const fresh = await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, at(20));
+    expect(fresh).toBe("limit");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: "victim-laptop" }, at(20))).toBe("ok");
+    // Still one a minute for everyone.
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: "victim-laptop" }, at(20.5))).toBe("wait");
+  });
+
+  it("is not refused by the per-client limits either", async () => {
+    const { store, rows } = memoryTokenStore();
+    for (let i = 0; i < 300; i++) rows.push({ identifier: "Sign-in code client: 198.51.100.7", token: `seed ${i}`, expires: at(24 * 60 - 30) });
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: null }, T0)).toBe("client-limit");
+    expect(await claimCodeRequest(store, ALICE, { client: "198.51.100.7", knownBrowser: "victim-laptop" }, T0)).toBe("ok");
+  });
+
+  it("allows 3 codes an hour and 6 a day per address and browser", async () => {
+    const { store } = memoryTokenStore();
+    const ask = (m: number, browser = "victim-laptop") => claimCodeRequest(store, ALICE, { client: null, knownBrowser: browser }, at(m));
+    for (const m of [0, 2, 4]) expect(await ask(m)).toBe("ok");
+    expect(await ask(6)).toBe("limit");
+    expect(await ask(8, "victim-phone")).toBe("ok");
+    for (const m of [61, 63, 65]) expect(await ask(m)).toBe("ok");
+    expect(await ask(130)).toBe("limit");
+    expect(await ask(24 * 60 + 1)).toBe("ok");
+  });
+
+  it("does not use up the allowance strangers' requests count against", async () => {
+    const { store } = memoryTokenStore();
+    for (const m of [0, 2, 4]) await claimCodeRequest(store, ALICE, { client: null, knownBrowser: "victim-laptop" }, at(m));
+    for (const m of [6, 8, 10, 12, 14, 16]) {
+      expect(await claimCodeRequest(store, ALICE, { client: `192.0.2.${m}`, knownBrowser: null }, at(m))).toBe("ok");
+    }
   });
 });
 
@@ -433,6 +509,7 @@ describe("prismaTokenStore", () => {
     const verificationToken = {
       createMany: vi.fn(async (args: unknown) => ({ count: 1, args })),
       findUnique: vi.fn(async (args: unknown) => ({ ...row, id: "x", args })),
+      findMany: vi.fn(async (args: unknown) => (args ? [] : [{ token: "never" }])),
       deleteMany: vi.fn(async (args: unknown) => ({ count: 1, args })),
       count: vi.fn(async (args: unknown) => (args ? 3 : 0)),
     };
@@ -469,6 +546,21 @@ describe("prismaTokenStore", () => {
     const store = prismaTokenStore(client({ createMany: fail, findUnique: fail }));
     await expect(store.add(row)).rejects.toBe(down);
     await expect(store.take("a@b.co", "t")).rejects.toBe(down);
+  });
+
+  it("voids only an address's link-shaped rows expiring within a day", async () => {
+    const link = "ab".repeat(32);
+    const c = client({ findMany: vi.fn(async () => [{ token: link }, { token: "other" }, { token: "AB".repeat(32) }]) });
+    await prismaTokenStore(c).voidOldLinks("a@b.co", T0);
+    expect(c.verificationToken.findMany).toHaveBeenCalledWith({
+      where: { identifier: "a@b.co", expires: { lte: new Date(T0.getTime() + 24 * HOUR) } },
+      select: { token: true },
+    });
+    expect(c.mocks.deleteMany).toHaveBeenCalledWith({ where: { identifier: "a@b.co", token: { in: [link] } } });
+
+    const none = client({ findMany: vi.fn(async () => [{ token: "other" }]) });
+    await prismaTokenStore(none).voidOldLinks("a@b.co", T0);
+    expect(none.mocks.deleteMany).not.toHaveBeenCalled();
   });
 
   it("clears an identifier, purges only a prefix's expired rows, and counts live rows", async () => {

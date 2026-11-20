@@ -6,20 +6,34 @@ const auth = vi.hoisted(() => ({
   calls: [] as { url: string; method: string; body: string; context: unknown }[],
   /** What the fake NextAuth does with a code request's context. */
   onRequest: (context: { onStored?: () => void }) => context.onStored?.(),
+  /** Whom the fake NextAuth signs in (with a session cookie), if anyone. */
+  signsIn: null as string | null,
+  /** Whether it sets a session cookie when it signs someone in. */
+  session: true,
 }));
 
 vi.mock("@/auth", () => {
-  const handle = (context: unknown) => async (req: NextRequest) => {
+  const handle = (context: unknown, onSignedIn?: (email: string) => void) => async (req: NextRequest) => {
     auth.calls.push({ url: req.url, method: req.method, body: req.method === "POST" ? await req.text() : "", context });
     if (context && (context as { kind: string }).kind === "request") auth.onRequest(context as { onStored?: () => void });
-    return Response.json({ url: "from-nextauth" });
+    const res = Response.json({ url: "from-nextauth" });
+    if (auth.signsIn && onSignedIn) {
+      onSignedIn(auth.signsIn);
+      if (auth.session) res.headers.append("Set-Cookie", "__Secure-next-auth.session-token=s3ss10n; Path=/; HttpOnly; Secure");
+    }
+    return res;
   };
-  return { authHandler: handle(null), authHandlerFor: (context: unknown) => handle(context) };
+  return {
+    authHandler: handle(null),
+    authHandlerFor: (context: unknown, onSignedIn?: (email: string) => void) => handle(context, onSignedIn),
+  };
 });
 
 import { GET, POST } from "@/app/api/auth/[...nextauth]/route";
+import { knownBrowserId } from "./known-browser";
 import {
   CLIENT_IP_HEADER,
+  CODE_COOKIE_NAMES,
   browserKeyOf,
   clientOf,
   codeCallbackRequest,
@@ -27,7 +41,9 @@ import {
   isEmailCallback,
   isEmailSignIn,
   isLegacyLinkToken,
+  isSecureSite,
   newBrowserKey,
+  startsSession,
 } from "./sign-in-code-route";
 
 const APP = "https://upvoteme.hintwise.org";
@@ -43,14 +59,19 @@ function codePost(fields: Record<string, string>, headers: Record<string, string
   });
 }
 
-const realUrl = process.env.NEXTAUTH_URL;
+const realEnv = { ...process.env };
 beforeEach(() => {
   auth.calls = [];
   auth.onRequest = (context) => context.onStored?.();
+  auth.signsIn = null;
+  auth.session = true;
   process.env.NEXTAUTH_URL = APP;
+  process.env.AUTH_SECRET = "route-test-secret";
+  delete process.env.NEXTAUTH_SECRET;
 });
 afterEach(() => {
-  process.env.NEXTAUTH_URL = realUrl;
+  process.env = { ...realEnv };
+  vi.restoreAllMocks();
 });
 
 describe("codeCallbackRequest", () => {
@@ -136,8 +157,18 @@ describe("codeCookie and the browser key", () => {
   });
 
   it("drops Secure and the __Host- prefix on plain http (local runs)", () => {
-    const cookie = codeCookie("http://localhost:3000");
+    const cookie = codeCookie("http://localhost:3000", "http://localhost:3000/api/auth/signin/email");
     expect(cookie.serialize(KEY)).toBe(`upvoteme.signin-code=${KEY}; Path=/; Max-Age=600; HttpOnly; SameSite=Lax`);
+    expect(CODE_COOKIE_NAMES).toEqual([COOKIE, "upvoteme.signin-code"]);
+  });
+
+  it("is Secure when NEXTAUTH_URL or the request is https, so an unset NEXTAUTH_URL behind https still is", () => {
+    expect(isSecureSite(APP)).toBe(true);
+    expect(isSecureSite("https://upvoteme.netlify.app")).toBe(true);
+    expect(isSecureSite(undefined, `${APP}/api/auth/signin/email`)).toBe(true);
+    expect(isSecureSite("http://localhost:3000", `${APP}/x`)).toBe(true);
+    expect(isSecureSite(undefined, "http://localhost:3000/x")).toBe(false);
+    expect(isSecureSite(undefined)).toBe(false);
   });
 
   it("makes 43-character random keys that browserKeyOf accepts", () => {
@@ -166,12 +197,20 @@ describe("clientOf", () => {
     expect(client("2001:DB8:1:2::99")).toBe("2001:db8:1:2::/64");
   });
 
-  it("is 'unknown' without a usable header, and ignores X-Forwarded-For", () => {
-    expect(client()).toBe("unknown");
-    expect(client("")).toBe("unknown");
-    expect(client("not an ip")).toBe("unknown");
-    expect(client("198.51.100.7, 10.0.0.1")).toBe("unknown");
-    expect(clientOf(new Headers({ "x-forwarded-for": "198.51.100.7" }))).toBe("unknown");
+  it("is null without a usable header, ignores X-Forwarded-For, and warns once, with no address", async () => {
+    vi.resetModules();
+    const fresh = await import("./sign-in-code-route");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const of = (h: Record<string, string>) => fresh.clientOf(new Headers(h));
+    expect(of({})).toBeNull();
+    expect(of({ [CLIENT_IP_HEADER]: "" })).toBeNull();
+    expect(of({ [CLIENT_IP_HEADER]: "not an ip" })).toBeNull();
+    expect(of({ [CLIENT_IP_HEADER]: "198.51.100.7, 10.0.0.1" })).toBeNull();
+    expect(of({ "x-forwarded-for": "198.51.100.7" })).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0].join(" ")).toBe(
+      "[sign-in code] No usable x-nf-client-connection-ip header: per-client limits on code requests are off.",
+    );
   });
 });
 
@@ -217,7 +256,7 @@ describe("/api/auth/[...nextauth] route", () => {
     await POST(new NextRequest(`${APP}/api/auth/signin/supabase`, { method: "POST", body: "x=1" }), ctx("signin", "supabase"));
     expect(auth.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search} ${c.context}`)).toEqual([
       "GET /api/auth/session null",
-      "GET /api/auth/callback/supabase?code=c1 null",
+      "GET /api/auth/callback/supabase?code=c1 undefined",
       "POST /api/auth/signin/supabase null",
     ]);
   });
@@ -241,7 +280,12 @@ describe("/api/auth/[...nextauth] route", () => {
 
     it("keeps the browser's existing key, so its new code replaces its old one", async () => {
       await ask({ Cookie: `${COOKIE}=${KEY}` });
-      expect(auth.calls[0].context).toMatchObject({ kind: "request", browserKey: KEY, client: "unknown" });
+      expect(auth.calls[0].context).toMatchObject({ kind: "request", browserKey: KEY, client: null, knownBrowser: null });
+    });
+
+    it("passes the browser's known-browser cookie on, to be checked against the address", async () => {
+      await ask({ Cookie: `__Host-upvoteme.known-browser=v1.123.abc` });
+      expect(auth.calls[0].context).toMatchObject({ kind: "request", knownBrowser: "v1.123.abc" });
     });
 
     it("sets no cookie when no code was stored (a refused or failed request), so the browser keeps its current code", async () => {
@@ -275,5 +319,68 @@ describe("/api/auth/[...nextauth] route", () => {
     const foreign = await POST(codePost({ email: "a@b.co", code: "123456" }, { Origin: "https://evil.example" }), ctx("callback", "email"));
     expect(foreign.status).toBe(403);
     expect(auth.calls).toEqual([]);
+  });
+});
+
+describe("marking a browser as known after a sign-in", () => {
+  const KNOWN = "__Host-upvoteme.known-browser";
+  const knownCookieOf = (res: Response) => res.headers.getSetCookie().find((c) => c.startsWith(`${KNOWN}=`));
+  const valueOf = (cookie: string) => cookie.split(";")[0].slice(KNOWN.length + 1);
+
+  it("after a code: a year-long cookie valid only for the address that signed in", async () => {
+    auth.signsIn = "Prof@UW.test";
+    const res = await POST(
+      codePost({ email: "prof@uw.test", code: "123456" }, { "Sec-Fetch-Site": "same-origin", Cookie: `${COOKIE}=${KEY}` }),
+      ctx("callback", "email"),
+    );
+    const cookie = knownCookieOf(res)!;
+    expect(cookie).toMatch(/; Path=\/; Max-Age=31536000; HttpOnly; SameSite=Lax; Secure$/);
+    const now = new Date();
+    expect(knownBrowserId(valueOf(cookie), "prof@uw.test", "route-test-secret", now)).toMatch(/^[0-9a-f]{32}$/);
+    expect(knownBrowserId(valueOf(cookie), "student@uw.test", "route-test-secret", now)).toBeNull();
+  });
+
+  it("after Google, or a link sent before codes", async () => {
+    auth.signsIn = "prof@uw.test";
+    const google = await GET(new NextRequest(`${APP}/api/auth/callback/supabase?code=c1`), ctx("callback", "supabase"));
+    expect(knownCookieOf(google)).toBeDefined();
+    const link = await GET(
+      new NextRequest(`${APP}/api/auth/callback/email?token=${"ab".repeat(32)}&email=prof%40uw.test`),
+      ctx("callback", "email"),
+    );
+    expect(knownCookieOf(link)).toBeDefined();
+  });
+
+  it("not when no session was started, nobody signed in, or there is no secret", async () => {
+    const tryCode = () =>
+      POST(codePost({ email: "prof@uw.test", code: "123456" }, { "Sec-Fetch-Site": "same-origin", Cookie: `${COOKIE}=${KEY}` }), ctx("callback", "email"));
+    expect(knownCookieOf(await tryCode())).toBeUndefined();
+    auth.signsIn = "prof@uw.test";
+    auth.session = false;
+    expect(knownCookieOf(await tryCode())).toBeUndefined();
+    auth.session = true;
+    delete process.env.AUTH_SECRET;
+    expect(knownCookieOf(await tryCode())).toBeUndefined();
+  });
+
+  it("never on a code request or a refused post", async () => {
+    auth.signsIn = "prof@uw.test";
+    const ask = await POST(new NextRequest(`${APP}/api/auth/signin/email`, { method: "POST", body: "email=x" }), ctx("signin", "email"));
+    expect(knownCookieOf(ask)).toBeUndefined();
+    const foreign = await POST(codePost({ email: "prof@uw.test", code: "123456" }, { Origin: "https://evil.example" }), ctx("callback", "email"));
+    expect(knownCookieOf(foreign)).toBeUndefined();
+  });
+
+  it("startsSession sees only a session cookie with a value", () => {
+    const res = (cookie: string) => {
+      const r = new Response(null);
+      r.headers.append("Set-Cookie", cookie);
+      return r;
+    };
+    expect(startsSession(res("__Secure-next-auth.session-token=abc; Path=/"))).toBe(true);
+    expect(startsSession(res("next-auth.session-token=abc; Path=/"))).toBe(true);
+    expect(startsSession(res("__Secure-next-auth.session-token=; Max-Age=0"))).toBe(false);
+    expect(startsSession(res("__Host-next-auth.csrf-token=abc"))).toBe(false);
+    expect(startsSession(new Response(null))).toBe(false);
   });
 });

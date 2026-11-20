@@ -41,7 +41,7 @@ export function SignInPanel({
 }
 
 /** The sign-in page's options: Google, an "or" divider, then the email form. */
-export function SignInOptions({ callbackUrl }: { callbackUrl: string }) {
+export function SignInOptions({ callbackUrl, hasPendingCode = false }: { callbackUrl: string; hasPendingCode?: boolean }) {
   return (
     <div>
       <GoogleSignInButton fullWidth onClick={() => signIn(googleProviderId(), { callbackUrl })} />
@@ -50,7 +50,7 @@ export function SignInOptions({ callbackUrl }: { callbackUrl: string }) {
         or
         <span aria-hidden className="h-px flex-1 bg-slate-200" />
       </div>
-      <EmailSignInForm callbackUrl={callbackUrl} />
+      <EmailSignInForm callbackUrl={callbackUrl} hasPendingCode={hasPendingCode} />
     </div>
   );
 }

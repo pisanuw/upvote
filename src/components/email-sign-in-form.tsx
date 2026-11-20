@@ -4,17 +4,25 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from "rea
 import { signIn } from "next-auth/react";
 import { SIGN_IN_BUTTON_CLASS } from "@/components/google-sign-in-button";
 import { signInErrorMessage } from "@/lib/sign-in-errors";
-import { MAX_WRONG_CODES, SIGN_IN_CODE_LENGTH, SIGN_IN_CODE_MINUTES, normalizeSignInCode } from "@/lib/sign-in-code";
+import {
+  ENTER_CODE_LABEL,
+  MAX_WRONG_CODES,
+  SIGN_IN_CODE_LENGTH,
+  SIGN_IN_CODE_MINUTES,
+  normalizeSignInCode,
+} from "@/lib/sign-in-code";
 
 /**
- * The code step: the address the code went to, whether it was the first or
- * a new code, what is happening, an error code (src/lib/sign-in-errors.ts),
- * and the wrong codes typed since the last code was sent.
+ * The code step: the address the code went to, how the person got here
+ * ("sent", "resent", or "entered": back to a code asked for earlier in this
+ * browser, after a reload or from ENTER_CODE_LABEL), what is happening, an
+ * error code (src/lib/sign-in-errors.ts), and the wrong codes typed since
+ * the last code was sent.
  */
 export type CodeStep = {
   kind: "code";
   email: string;
-  note: "sent" | "resent";
+  note: "sent" | "resent" | "entered";
   busy?: "verifying" | "resending" | "signed-in";
   error?: string;
   wrong: number;
@@ -181,6 +189,51 @@ export function EnvelopeIcon({ className = "h-4 w-4 text-slate-500" }: { classNa
   );
 }
 
+/**
+ * The code step survives a reload of this tab: sessionStorage keeps the
+ * address and when a code was asked for, never the code. Every access is
+ * guarded, since storage can be blocked.
+ */
+export const CODE_STEP_STORAGE_KEY = "upvoteme.signin-code-step";
+type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+function tabStorage(): StorageLike | null {
+  try {
+    return typeof window === "undefined" ? null : window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+export function saveCodeStep(storage: StorageLike | null, email: string, now = Date.now()): void {
+  try {
+    storage?.setItem(CODE_STEP_STORAGE_KEY, JSON.stringify({ email, at: now }));
+  } catch {
+    // Without storage, a reload shows the email step.
+  }
+}
+
+/** The address of a code step saved in this tab within a code's lifetime, or null. */
+export function restoreCodeStep(storage: StorageLike | null, now = Date.now()): string | null {
+  try {
+    const saved: unknown = JSON.parse(storage?.getItem(CODE_STEP_STORAGE_KEY) ?? "null");
+    if (typeof saved !== "object" || saved === null) return null;
+    const { email, at } = saved as { email?: unknown; at?: unknown };
+    if (typeof email !== "string" || !isPlausibleEmail(email) || typeof at !== "number") return null;
+    return now - at >= 0 && now - at < SIGN_IN_CODE_MINUTES * 60_000 ? email : null;
+  } catch {
+    return null;
+  }
+}
+
+export function forgetCodeStep(storage: StorageLike | null): void {
+  try {
+    storage?.removeItem(CODE_STEP_STORAGE_KEY);
+  } catch {
+    // Nothing to forget.
+  }
+}
+
 export const EMAIL_INPUT_ID = "signin-email";
 export const CODE_INPUT_ID = "signin-code";
 
@@ -208,6 +261,10 @@ type ViewProps = {
   onCodeChange: (code: string) => void;
   /** The email step's submit: email me a code. */
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  /** Whether this browser holds a code cookie, so ENTER_CODE_LABEL can lead somewhere. */
+  canEnterCode?: boolean;
+  /** ENTER_CODE_LABEL: the code step for the typed address. */
+  onHaveCode?: () => void;
   /** The code step's submit: check the code. */
   onVerify: (e: FormEvent<HTMLFormElement>) => void;
   onResend: () => void;
@@ -223,7 +280,7 @@ function StatusText({ status }: { status: EmailFormStatus }) {
   const address = <strong className="wrap-anywhere">{status.email}</strong>;
   return (
     <>
-      <h2 className="text-lg font-bold">Check your email</h2>
+      <h2 className="text-lg font-bold">{status.note === "entered" ? "Enter your code" : "Check your email"}</h2>
       <p className="mt-1 text-sm">
         {status.note === "sent" && (
           <>
@@ -235,8 +292,17 @@ function StatusText({ status }: { status: EmailFormStatus }) {
             We sent a new code to {address}. Earlier codes no longer work.
           </>
         )}
+        {status.note === "entered" && (
+          <>
+            Type the {SIGN_IN_CODE_LENGTH}-digit code from the email we sent to {address}.
+          </>
+        )}
       </p>
-      <p className="mt-1 text-sm">Type it here, in this browser. Nothing after a few minutes? Check your spam folder.</p>
+      <p className="mt-1 text-sm">
+        {status.note === "entered"
+          ? `It works only in the browser where you asked for it, for ${SIGN_IN_CODE_MINUTES} minutes.`
+          : "Type it here, in this browser. Nothing after a few minutes? Check your spam folder."}
+      </p>
       {status.busy === "verifying" && <span className="sr-only">Checking your code…</span>}
       {status.busy === "resending" && <span className="sr-only">Sending a new code…</span>}
       {status.busy === "signed-in" && <p className="mt-2 text-sm font-semibold">Signed in. Taking you back…</p>}
@@ -244,7 +310,7 @@ function StatusText({ status }: { status: EmailFormStatus }) {
   );
 }
 
-function EmailStep({ email, status, onEmailChange, onSubmit, emailRef }: ViewProps) {
+function EmailStep({ email, status, onEmailChange, onSubmit, canEnterCode, onHaveCode, emailRef }: ViewProps) {
   const sending = status.kind === "sending";
   const error = status.kind === "error" ? signInErrorMessage(status.code) : null;
   return (
@@ -277,6 +343,11 @@ function EmailStep({ email, status, onEmailChange, onSubmit, emailRef }: ViewPro
         <EnvelopeIcon />
         {sending ? "Sending code…" : "Email me a sign-in code"}
       </button>
+      {canEnterCode && (
+        <button type="button" disabled={sending} onClick={onHaveCode} className={`${TEXT_BUTTON_CLASS} mt-3 text-slate-700 hover:text-slate-900`}>
+          {ENTER_CODE_LABEL}
+        </button>
+      )}
     </form>
   );
 }
@@ -351,15 +422,30 @@ export function EmailSignInFormView(props: ViewProps) {
 /**
  * Sign-in by email: the address, then the 6-digit code from the email, on
  * one page. The code works only in this browser: the request sets an
- * httpOnly cookie that the server checks with the code.
+ * httpOnly cookie that the server checks with the code. `hasPendingCode`
+ * (the sign-in page saw that cookie) offers ENTER_CODE_LABEL and lets a
+ * reload come back to the code step.
  */
-export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
+export function EmailSignInForm({ callbackUrl, hasPendingCode = false }: { callbackUrl: string; hasPendingCode?: boolean }) {
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [status, setStatus] = useState<EmailFormStatus>({ kind: "idle" });
   const emailRef = useRef<HTMLInputElement>(null);
   const codeRef = useRef<HTMLInputElement>(null);
   const focusEmailNext = useRef(false);
+
+  // After a reload of this tab, come back to the code step it was on. This
+  // reads sessionStorage, which the server render cannot, so it has to run
+  // after the first client render: setting state here is the point.
+  useEffect(() => {
+    if (!hasPendingCode) return;
+    const saved = restoreCodeStep(tabStorage());
+    if (!saved) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setEmail(saved);
+    setStatus({ kind: "code", email: saved, note: "entered", wrong: 0 });
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [hasPendingCode]);
 
   // Keep keyboard focus useful when the form changes under it.
   useEffect(() => {
@@ -380,7 +466,16 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
     const result = await requestSignInCode(email, callbackUrl);
     if (result.kind === "error") return setStatus(result);
     setCode("");
+    saveCodeStep(tabStorage(), result.email);
     setStatus({ kind: "code", email: result.email, note: "sent", wrong: 0 });
+  }
+
+  function haveCode() {
+    const invalid = checkAddress(email);
+    if (invalid) return setStatus(invalid);
+    setCode("");
+    saveCodeStep(tabStorage(), email.trim());
+    setStatus({ kind: "code", email: email.trim(), note: "entered", wrong: 0 });
   }
 
   async function verify(e: FormEvent<HTMLFormElement>) {
@@ -391,6 +486,7 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
     const result = await verifySignInCode(step.email, code, callbackUrl);
     if (result.kind === "error") return setStatus(afterFailedCode(step, result.code));
     setStatus({ ...step, busy: "signed-in", error: undefined });
+    forgetCodeStep(tabStorage());
     window.location.assign(callbackUrl);
   }
 
@@ -405,6 +501,7 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
       return setStatus({ ...step, busy: undefined, error });
     }
     setCode("");
+    saveCodeStep(tabStorage(), result.email);
     setStatus({ kind: "code", email: result.email, note: "resent", wrong: 0 });
   }
 
@@ -422,9 +519,12 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
         if (status.kind === "code" && status.error && !status.busy) setStatus({ ...status, error: undefined });
       }}
       onSubmit={submit}
+      canEnterCode={hasPendingCode}
+      onHaveCode={haveCode}
       onVerify={verify}
       onResend={resend}
       onReset={() => {
+        forgetCodeStep(tabStorage());
         focusEmailNext.current = true;
         setStatus({ kind: "idle" });
       }}

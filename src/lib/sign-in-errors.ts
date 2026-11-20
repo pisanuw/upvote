@@ -26,7 +26,7 @@ const MESSAGES = new Map<string, string>([
   ["EmailCodeWait", "We sent a code to this address less than a minute ago. Wait a minute, then ask for a new one."],
   [
     "EmailCodeLimit",
-    "We have sent this address as many sign-in codes as we can for now. Use the newest one, try again later, or continue with Google.",
+    "We have sent this address as many sign-in codes as we can for now. A code you already got in this browser still works until it expires. Otherwise try again later, or continue with Google.",
   ],
   [
     "EmailCodeClientLimit",

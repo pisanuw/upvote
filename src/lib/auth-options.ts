@@ -7,6 +7,7 @@ import { googleAuthMode } from "@/lib/google-sign-in";
 import { allowSignIn, supabaseAuthSettings, supabaseGoogleProvider } from "@/lib/supabase-auth";
 import { SIGN_IN_CODE_MINUTES, normalizeEmailAddress } from "@/lib/sign-in-code";
 import { generateSignInCode, sendSignInCodeEmail } from "@/lib/sign-in-code-email";
+import { knownBrowserId, knownBrowserSecret } from "@/lib/known-browser";
 import {
   claimCodeRequest,
   withSignInCodes,
@@ -98,15 +99,26 @@ const REFUSALS: Record<Exclude<CodeRequestVerdict, "ok">, string> = {
  * at most MAX_WRONG_CODES tries, and is sent within CODE_LIMITS. A request
  * that issues or checks a code needs its CodeContext from the route
  * (src/lib/sign-in-code-route.ts); without one, both are refused.
+ * `onSignedIn` hears the address of every sign-in that creates a session.
  */
 export function buildAuthOptions(
   adapter: Adapter,
   codeStore: TokenStore,
   env: Env = process.env,
   codeContext?: CodeContext,
+  onSignedIn?: (email: string) => void,
 ): NextAuthOptions {
   return {
     adapter: withSignInCodes(adapter, codeStore, codeContext),
+    // Tells the route who signed in, so it can mark the browser as known for
+    // that address (src/lib/known-browser.ts).
+    events: onSignedIn
+      ? {
+          signIn: ({ user }) => {
+            if (user.email) onSignedIn(user.email);
+          },
+        }
+      : undefined,
     session: { strategy: "database" },
     providers: buildProviders(env),
     pages: {
@@ -116,9 +128,19 @@ export function buildAuthOptions(
       signIn: async (params) => {
         if (params.email?.verificationRequest && params.account?.provider === "email") {
           if (codeContext?.kind !== "request") throw new SignInRefusal("EmailSignin");
+          const address = params.account.providerAccountId;
+          const now = new Date();
           let verdict: CodeRequestVerdict;
           try {
-            verdict = await claimCodeRequest(codeStore, params.account.providerAccountId, codeContext.client, new Date());
+            verdict = await claimCodeRequest(
+              codeStore,
+              address,
+              {
+                client: codeContext.client,
+                knownBrowser: knownBrowserId(codeContext.knownBrowser, address, knownBrowserSecret(env), now),
+              },
+              now,
+            );
           } catch (error) {
             console.error("[sign-in code] could not check how often a code was sent", error);
             throw new SignInRefusal("EmailSignin");

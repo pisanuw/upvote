@@ -11,6 +11,9 @@
 
 export const SIGN_IN_CODE_LENGTH = 6;
 
+/** The sign-in page's way back to the code step, named the same in the email. */
+export const ENTER_CODE_LABEL = "Type a code I asked for in this browser";
+
 /** How long a code works after it is sent. */
 export const SIGN_IN_CODE_MINUTES = 10;
 
@@ -21,17 +24,30 @@ export const MAX_WRONG_CODES = 5;
 export const SIGN_IN_CODE_RESEND_SECONDS = 60;
 
 /**
- * How many codes may be sent, per hour and per day: to one address, to one
- * address from one client (IP address, or IPv6 /64), and from one client to
- * any addresses. One client can never use up an address's allowance alone
- * (3 < 6 an hour, 4 < 12 a day), and a client's own allowance is sized for a
- * classroom behind one network address.
+ * How many codes may be sent, per hour and per day. Change them here.
+ *
+ * - address: to one address, from browsers that have not signed in as it.
+ * - clientAndAddress: to one address from one client (IPv4 address, or IPv6
+ *   /64, by Netlify's x-nf-client-connection-ip header).
+ * - client: from one client to any addresses; sized for a lecture hall
+ *   behind one campus address.
+ * - knownBrowser: to one address from one browser that has signed in as it
+ *   (its known-browser cookie, src/lib/known-browser.ts). This allowance is
+ *   separate: the address and client limits above never refuse it, so
+ *   strangers cannot stop the owner's own browser getting a code.
+ *
+ * Every request also needs the address's one-a-minute slot
+ * (SIGN_IN_CODE_RESEND_SECONDS), and each code takes MAX_WRONG_CODES tries.
  */
 export const CODE_LIMITS = {
   address: { hour: 6, day: 12 },
   clientAndAddress: { hour: 3, day: 4 },
-  client: { hour: 50, day: 200 },
+  client: { hour: 300, day: 1000 },
+  knownBrowser: { hour: 3, day: 6 },
 } as const;
+
+/** How long a browser stays known for an address after signing in as it. */
+export const KNOWN_BROWSER_DAYS = 365;
 
 /**
  * The 6 digits in what was typed or pasted, or null. Spaces and hyphens are

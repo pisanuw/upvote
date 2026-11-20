@@ -21,10 +21,11 @@
  *   anything is counted or written, so nobody else can use up, or void, the
  *   code (no lockout by outsiders). A GET with a link sent before codes only
  *   ever reaches those old rows.
- * - Issuing a code deletes this browser's earlier code for the address, its
- *   wrong-try count, and the address's links sent before codes; and purges
- *   expired rows in this module's own namespace. It never touches other
- *   rows: the database is shared with another app.
+ * - Issuing a code deletes this browser's earlier code for the address and
+ *   its wrong-try count, voids the address's links sent before codes (see
+ *   voidOldLinks for exactly which rows), and purges expired rows in this
+ *   module's own namespace. It touches no other rows: the database is shared
+ *   with another app.
  * - Each try is counted as a row added before it is checked (after a count
  *   that skips the write once the limit is reached). Adding before the final
  *   count means concurrent tries see each other, so no more than
@@ -56,6 +57,12 @@ export interface TokenStore {
   clear(identifier: string): Promise<void>;
   /** Deletes the expired rows whose identifier starts with `prefix`. */
   purgeExpired(now: Date, prefix: string): Promise<void>;
+  /**
+   * Deletes the rows under exactly this identifier that have the shape of
+   * a NextAuth v4 email link: a token of 64 lower-case hex characters (its
+   * sha256), expiring within OLD_LINK_DAY_MS of now (its 1-day lifetime).
+   */
+  voidOldLinks(identifier: string, now: Date): Promise<void>;
   /** Counts this identifier's rows that are still live at `at` (expires > at). */
   countLive(identifier: string, at: Date): Promise<number>;
 }
@@ -63,14 +70,15 @@ export interface TokenStore {
 /**
  * What the route knows about the request NextAuth is handling:
  * - "request": a code request; the browser's key (its cookie, new or kept),
- *   the client (IP address or IPv6 /64, "unknown" without one), and a
- *   callback for when a code bound to that key was stored (then the route
- *   sets the cookie).
+ *   the client (IPv4 address or IPv6 /64; null without Netlify's header),
+ *   the browser's known-browser cookie as sent (checked against the address
+ *   in the signIn callback, src/lib/known-browser.ts), and a callback for
+ *   when a code bound to the key was stored (then the route sets the cookie).
  * - "code": a typed code; the browser's key from its cookie, or null.
  * - "link": a GET with a link sent before codes.
  */
 export type CodeContext =
-  | { kind: "request"; browserKey: string; client: string; onStored: () => void }
+  | { kind: "request"; browserKey: string; client: string | null; knownBrowser: string | null; onStored: () => void }
   | { kind: "code"; browserKey: string | null }
   | { kind: "link" };
 
@@ -80,6 +88,11 @@ const ATTEMPT = `${NAMESPACE} attempt: `;
 const WAIT = `${NAMESPACE} wait: `;
 const SENT = `${NAMESPACE} sent: `;
 const CLIENT = `${NAMESPACE} client: `;
+const KNOWN = `${NAMESPACE} known browser: `;
+
+/** A NextAuth v4 email link's lifetime (its default maxAge, which this app never changed). */
+export const OLD_LINK_DAY_MS = 24 * 60 * 60 * 1000;
+export const OLD_LINK_TOKEN = /^[0-9a-f]{64}$/;
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -137,7 +150,7 @@ export function withSignInCodes(
       if (context?.kind !== "request") throw new Error("A sign-in code needs the browser that asked for it.");
       const now = clock();
       await store.purgeExpired(now, NAMESPACE);
-      await store.clear(identifier);
+      await store.voidOldLinks(identifier, now);
       await store.clear(codeIdentifier(identifier, context.browserKey));
       await store.clear(attemptIdentifier(identifier, context.browserKey));
       await store.add({
@@ -209,46 +222,68 @@ async function sentCounts(store: TokenStore, identifier: string, now: Date) {
 const reached = (n: { hour: number; day: number }, limit: Limit) => n.hour >= limit.hour || n.day >= limit.day;
 const exceeded = (n: { hour: number; day: number }, limit: Limit) => n.hour > limit.hour || n.day > limit.day;
 
+/** Who is asking: the client (null without Netlify's header) and, if valid for this address, its known-browser id. */
+export type CodeRequester = { client: string | null; knownBrowser: string | null };
+
 /**
- * May a code be sent to this address, for this client, now?
- * - At most one per SIGN_IN_CODE_RESEND_SECONDS per address: a row with a
- *   fixed token, so of two requests at the same moment the second finds it
- *   taken.
- * - CODE_LIMITS per hour and per day: per address, per client and address,
- *   and per client. Counts are read first and nothing is written once a
- *   limit is reached. The per-address counts are then exact (one request a
- *   minute gets past the fixed-token row); the client's count is added
- *   before it is read again, so a burst of requests from one client sees
- *   itself.
- * A refused request leaves the address's codes working.
+ * May a code be sent to this address, for this requester, now?
+ * - At most one per SIGN_IN_CODE_RESEND_SECONDS per address, for everyone:
+ *   a row with a fixed token, so of two requests at the same moment the
+ *   second finds it taken.
+ * - A known browser (one that has signed in as this address) has only its
+ *   own allowance, CODE_LIMITS.knownBrowser; nothing else refuses it.
+ * - Any other browser: CODE_LIMITS per address, per client and address, and
+ *   per client (the last two only with a client). Counts are read first and
+ *   nothing is written once a limit is reached. The per-address counts are
+ *   then exact (one request a minute gets past the fixed-token row). The
+ *   client's row is added before its count is read again, so a burst from
+ *   one client sees itself; a request refused there deletes what it added.
+ * A refused request writes nothing and leaves the address's codes working.
  */
 export async function claimCodeRequest(
   store: TokenStore,
   identifier: string,
-  client: string,
+  requester: CodeRequester,
   now: Date,
 ): Promise<CodeRequestVerdict> {
-  const fromClient = CLIENT + client;
-  const toAddress = SENT + identifier;
-  const toAddressFromClient = `${SENT}${identifier} from ${client}`;
-
-  if (reached(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) return "client-limit";
-  if (reached(await sentCounts(store, toAddressFromClient, now), CODE_LIMITS.clientAndAddress)) return "limit";
-  if (reached(await sentCounts(store, toAddress, now), CODE_LIMITS.address)) return "limit";
-
   const wait = WAIT + identifier;
-  await store.purgeExpired(now, wait);
-  if (!(await store.add({ identifier: wait, token: wait, expires: later(now, SIGN_IN_CODE_RESEND_SECONDS * 1000) }))) {
-    return "wait";
+  const claimMinute = async () => {
+    await store.purgeExpired(now, wait);
+    return store.add({ identifier: wait, token: wait, expires: later(now, SIGN_IN_CODE_RESEND_SECONDS * 1000) });
+  };
+  const addSent = (rows: string) => store.add({ identifier: rows, token: `${rows} ${randomUUID()}`, expires: later(now, DAY) });
+
+  if (requester.knownBrowser) {
+    const own = `${KNOWN}${identifier} ${requester.knownBrowser}`;
+    if (reached(await sentCounts(store, own, now), CODE_LIMITS.knownBrowser)) return "limit";
+    if (!(await claimMinute())) return "wait";
+    await addSent(own);
+    return "ok";
   }
 
-  await store.add({ identifier: fromClient, token: `${fromClient} ${randomUUID()}`, expires: later(now, DAY) });
-  if (exceeded(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) {
-    await store.clear(wait);
-    return "client-limit";
+  const { client } = requester;
+  const fromClient = client === null ? null : CLIENT + client;
+  const toAddress = SENT + identifier;
+  const toAddressFromClient = client === null ? null : `${SENT}${identifier} from ${client}`;
+
+  if (fromClient && reached(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) return "client-limit";
+  if (toAddressFromClient && reached(await sentCounts(store, toAddressFromClient, now), CODE_LIMITS.clientAndAddress)) {
+    return "limit";
   }
-  await store.add({ identifier: toAddress, token: `${toAddress} ${randomUUID()}`, expires: later(now, DAY) });
-  await store.add({ identifier: toAddressFromClient, token: `${toAddressFromClient} ${randomUUID()}`, expires: later(now, DAY) });
+  if (reached(await sentCounts(store, toAddress, now), CODE_LIMITS.address)) return "limit";
+  if (!(await claimMinute())) return "wait";
+
+  if (fromClient) {
+    const token = `${fromClient} ${randomUUID()}`;
+    await store.add({ identifier: fromClient, token, expires: later(now, DAY) });
+    if (exceeded(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) {
+      await store.take(fromClient, token);
+      await store.clear(wait);
+      return "client-limit";
+    }
+  }
+  await addSent(toAddress);
+  if (toAddressFromClient) await addSent(toAddressFromClient);
   return "ok";
 }
 
@@ -259,8 +294,12 @@ export interface VerificationTokenClient {
     findUnique(args: {
       where: { identifier_token: { identifier: string; token: string } };
     }): Promise<VerificationToken | null>;
+    findMany(args: {
+      where: { identifier: string; expires: { lte: Date } };
+      select: { token: true };
+    }): Promise<{ token: string }[]>;
     deleteMany(args: {
-      where: { identifier?: string | { startsWith: string }; token?: string; expires?: { lt: Date } };
+      where: { identifier?: string | { startsWith: string }; token?: string | { in: string[] }; expires?: { lt: Date } };
     }): Promise<{ count: number }>;
     count(args: { where: { identifier: string; expires: { gt: Date } } }): Promise<number>;
   };
@@ -290,6 +329,14 @@ export function prismaTokenStore(prisma: VerificationTokenClient): TokenStore {
     },
     async purgeExpired(now, prefix) {
       await rows.deleteMany({ where: { identifier: { startsWith: prefix }, expires: { lt: now } } });
+    },
+    async voidOldLinks(identifier, now) {
+      const found = await rows.findMany({
+        where: { identifier, expires: { lte: later(now, OLD_LINK_DAY_MS) } },
+        select: { token: true },
+      });
+      const tokens = found.map((r) => r.token).filter((t) => OLD_LINK_TOKEN.test(t));
+      if (tokens.length) await rows.deleteMany({ where: { identifier, token: { in: tokens } } });
     },
     async countLive(identifier, at) {
       return rows.count({ where: { identifier, expires: { gt: at } } });

@@ -84,6 +84,16 @@ describe("signInCodeEmail", () => {
     }
   });
 
+  it("says to go back to the browser that asked, and that the code works only there", () => {
+    const words = (body: string) => body.replace(/<[^>]+>/g, "").replace(/&#34;/g, '"').replace(/\s+/g, " ");
+    for (const body of [mail.text, mail.html].map(words)) {
+      expect(body).toContain("Go back to the tab or browser where you asked for the code and type it there.");
+      expect(body).toContain("It works only in that browser.");
+      expect(body).toContain('Closed that tab? Open the sign-in page in that same browser and choose "Type a code I asked for in this browser".');
+      expect(body).not.toMatch(/any (device|browser)|click|tap the link/i);
+    }
+  });
+
   it("escapes the sign-in page address in the HTML", () => {
     const html = signInCodeEmail({ code: CODE, signInUrl: `${APP}/signin?callbackUrl=/t/a"><b>&x` }).html;
     expect(html).toContain('href="https://upvoteme.hintwise.org/signin?callbackUrl=/t/a&#34;&#62;&#60;b&#62;&#38;x"');

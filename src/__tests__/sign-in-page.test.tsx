@@ -5,13 +5,19 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Session } from "next-auth";
 
-const state = vi.hoisted(() => ({ session: null as Session | null, pathname: "/" as string | null, search: "" }));
+const state = vi.hoisted(() => ({
+  session: null as Session | null,
+  pathname: "/" as string | null,
+  search: "",
+  cookies: [] as string[],
+}));
 
 vi.mock("@/auth", () => ({ auth: async () => state.session }));
 vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
   useSearchParams: () => new URLSearchParams(state.search),
 }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ has: (name: string) => state.cookies.includes(name) }) }));
 
 import SignInPage from "@/app/signin/page";
 import { NavBarClient, emailSignInHref } from "@/components/nav-bar-client";
@@ -32,6 +38,7 @@ beforeEach(() => {
   state.session = null;
   state.pathname = "/";
   state.search = "";
+  state.cookies = [];
 });
 
 describe("/signin, signed out", () => {
@@ -68,6 +75,18 @@ describe("/signin, signed out", () => {
     expect(html).toMatch(/<p role="alert"[^>]*>/);
     expect(html).toContain(words);
     expect(html).not.toContain(`>${code}<`);
+  });
+
+  it("offers 'Type a code I asked for in this browser' only when this browser holds a code cookie", async () => {
+    expect(await renderPage()).not.toContain("Type a code I asked for in this browser");
+    state.cookies = ["__Host-next-auth.csrf-token", "__Host-upvoteme.known-browser"];
+    expect(await renderPage()).not.toContain("Type a code I asked for in this browser");
+    for (const name of ["__Host-upvoteme.signin-code", "upvoteme.signin-code"]) {
+      state.cookies = [name];
+      const html = await renderPage();
+      expect(html).toContain("Type a code I asked for in this browser</button>");
+      expect(html.indexOf("Type a code I asked for")).toBeGreaterThan(html.indexOf("Email me a sign-in code"));
+    }
   });
 
   it("never shows the raw text of an unknown code", async () => {

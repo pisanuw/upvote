@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
 import { auth } from "@/auth";
+import { CODE_COOKIE_NAMES } from "@/lib/sign-in-code-route";
 import { SignInOptions, SignInPanel } from "@/components/signin-panel";
 import { safeCallbackUrl } from "@/lib/callback-url";
 import { signInErrorMessage } from "@/lib/sign-in-errors";
@@ -22,6 +24,9 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
   const error = signInErrorMessage(first(query.error));
   const session = await auth();
   const user = session?.user;
+  // This browser asked for a code in the last 10 minutes (its httpOnly code cookie).
+  const cookieStore = await cookies();
+  const hasPendingCode = CODE_COOKIE_NAMES.some((name) => cookieStore.has(name));
 
   return (
     <main className="mx-auto flex min-h-[70vh] w-full max-w-md items-center px-4 py-8 sm:p-6">
@@ -55,7 +60,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
               </p>
             )}
             <div className="mt-6">
-              <SignInOptions callbackUrl={callbackUrl} />
+              <SignInOptions callbackUrl={callbackUrl} hasPendingCode={hasPendingCode} />
             </div>
           </>
         )}
