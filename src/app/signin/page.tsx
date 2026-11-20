@@ -47,7 +47,7 @@ export default async function SignInPage({ searchParams }: { searchParams: Promi
           <>
             <h1 className="text-3xl font-bold text-slate-900">Sign in</h1>
             <p className="mt-2 text-sm text-slate-600">
-              Use your Google account, or get a one-time sign-in link by email. No password needed.
+              Use your Google account, or get a one-time sign-in code by email. No password needed.
             </p>
             {error && (
               <p role="alert" className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">

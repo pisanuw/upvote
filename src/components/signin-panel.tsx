@@ -34,7 +34,7 @@ export function SignInPanel({
     <div className="flex flex-wrap gap-2">
       <GoogleSignInButton onClick={() => signIn(googleProviderId(), { callbackUrl })} />
       <Link href={signInHref(callbackUrl)} className={SIGN_IN_LINK_CLASS}>
-        Email me a sign-in link
+        Email me a sign-in code
       </Link>
     </div>
   );

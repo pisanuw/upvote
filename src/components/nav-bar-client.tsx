@@ -199,11 +199,11 @@ function AccountMenu({ user }: { user: UserInfo }) {
 // ─── Signed-out buttons ────────────────────────────────────────────────────────
 
 /**
- * Where the top bar's "Magic link" goes: the sign-in page, returning to this
+ * Where the top bar's "Email code" goes: the sign-in page, returning to this
  * page (path and query) afterwards. On the sign-in page itself it points at
  * the email field, which keeps the page's own callbackUrl.
  */
-export function magicLinkHref(pathname: string | null, search = ""): string {
+export function emailSignInHref(pathname: string | null, search = ""): string {
   return pathname === "/signin" ? `#${EMAIL_INPUT_ID}` : signInHref(currentPageCallbackUrl(pathname, search));
 }
 
@@ -216,12 +216,12 @@ function SignInButtons({ search }: { search: string }) {
     <div className="flex items-center gap-2">
       <GoogleSignInButton text="Sign in with Google" compact onClick={() => signIn(googleProviderId(), { callbackUrl })} />
       <Link
-        href={magicLinkHref(pathname, search)}
+        href={emailSignInHref(pathname, search)}
         onClick={onSignInPage ? () => document.getElementById(EMAIL_INPUT_ID)?.focus() : undefined}
         className={`${SIGN_IN_LINK_CLASS} ${COMPACT_BUTTON_CLASS} gap-1.5`}
       >
         <EnvelopeIcon />
-        <span className={COMPACT_TEXT_CLASS}>Magic link</span>
+        <span className={COMPACT_TEXT_CLASS}>Email code</span>
       </Link>
     </div>
   );

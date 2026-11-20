@@ -54,7 +54,7 @@ describe("SignInPanel", () => {
   it("shows the branded Google button and an equally prominent email button", () => {
     const html = renderToStaticMarkup(createElement(SignInPanel, { isSignedIn: false }));
     expect(html).toContain("Continue with Google");
-    expect(html).toContain("Email me a sign-in link");
+    expect(html).toContain("Email me a sign-in code");
     expect(html).not.toContain("Google sign-in");
     // Both buttons share the same class (React escapes the quotes in it, so count a plain part).
     expect(html.split("inline-flex h-10 shrink-0 items-center").length - 1).toBe(2);

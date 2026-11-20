@@ -17,7 +17,7 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
 - admin URL: keep private for moderation
 - Optional auth-required voting mode:
 - creator must be authenticated to enable it
-- participants must sign in (Google or magic link) to vote
+- participants must sign in (Google or an emailed code) to vote
 - Topic admin controls:
 - lock or unlock comments
 - delete topic and all comments
@@ -116,13 +116,19 @@ Rollback to the app's own Google OAuth client: set
 `AUTH_GOOGLE_SECRET`, put `https://upvoteme.hintwise.org/api/auth/callback/google`
 back on the Google client, and redeploy (the variable is read at build time).
 
-For magic-link login (SMTP):
+For sign-in by emailed code (SMTP):
 
 - `AUTH_SMTP_HOST`
 - `AUTH_SMTP_PORT`
 - `AUTH_SMTP_USER`
 - `AUTH_SMTP_PASS`
 - `AUTH_SMTP_FROM`
+
+The email carries a 6-digit code, not a link (university mail scanners open
+links and would use them up). A code lasts 10 minutes; 5 wrong codes void it;
+an address gets at most one code a minute and five an hour. The limits are
+rows in the `VerificationToken` table, so they hold on serverless
+(`src/lib/sign-in-code-store.ts`).
 
 For scheduled cleanup endpoint:
 

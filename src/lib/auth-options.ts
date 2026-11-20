@@ -5,10 +5,13 @@ import Email from "next-auth/providers/email";
 import Credentials from "next-auth/providers/credentials";
 import { googleAuthMode } from "@/lib/google-sign-in";
 import { allowSignIn, supabaseAuthSettings, supabaseGoogleProvider } from "@/lib/supabase-auth";
+import { SIGN_IN_CODE_MINUTES, normalizeEmailAddress } from "@/lib/sign-in-code";
+import { generateSignInCode, sendSignInCodeEmail } from "@/lib/sign-in-code-email";
+import { claimCodeRequest, withSignInCodes, type CodeRequestVerdict, type TokenStore } from "@/lib/sign-in-code-store";
 
 type Env = Record<string, string | undefined>;
 
-/** The providers for this environment: Google (through Supabase by default), magic link. */
+/** The providers for this environment: Google (through Supabase by default), an emailed code. */
 export function buildProviders(env: Env = process.env): NextAuthOptions["providers"] {
   const providers: NextAuthOptions["providers"] = [];
 
@@ -43,6 +46,11 @@ export function buildProviders(env: Env = process.env): NextAuthOptions["provide
           },
         },
         from: env.AUTH_SMTP_FROM,
+        // A 6-digit code in the email instead of a link (src/lib/sign-in-code.ts).
+        maxAge: SIGN_IN_CODE_MINUTES * 60,
+        generateVerificationToken: () => generateSignInCode(),
+        sendVerificationRequest: sendSignInCodeEmail,
+        normalizeIdentifier: normalizeEmailAddress,
       }),
     );
   }
@@ -60,16 +68,50 @@ export function buildProviders(env: Env = process.env): NextAuthOptions["provide
   return providers;
 }
 
-export function buildAuthOptions(adapter: Adapter, env: Env = process.env): NextAuthOptions {
+/**
+ * Ends a sign-in from the signIn callback with one of this app's error codes
+ * (src/lib/sign-in-errors.ts). For an email request NextAuth answers with
+ * .../error?error=String(error) (next-auth/core/routes/signin.js), so the
+ * string form is the bare code.
+ */
+export class SignInRefusal extends Error {
+  toString() {
+    return this.message;
+  }
+}
+
+const REFUSALS: Record<Exclude<CodeRequestVerdict, "ok">, string> = {
+  wait: "EmailCodeWait",
+  limit: "EmailCodeLimit",
+};
+
+/**
+ * The adapter and the sign-in code's rows (src/lib/sign-in-code-store.ts):
+ * codes are bound to their address, limited to MAX_WRONG_CODES tries, and
+ * sent at most once a minute and five times an hour per address.
+ */
+export function buildAuthOptions(adapter: Adapter, codeStore: TokenStore, env: Env = process.env): NextAuthOptions {
   return {
-    adapter,
+    adapter: withSignInCodes(adapter, codeStore),
     session: { strategy: "database" },
     providers: buildProviders(env),
     pages: {
       signIn: "/signin",
     },
     callbacks: {
-      signIn: allowSignIn,
+      signIn: async (params) => {
+        if (params.email?.verificationRequest && params.account?.provider === "email") {
+          let verdict: CodeRequestVerdict;
+          try {
+            verdict = await claimCodeRequest(codeStore, params.account.providerAccountId, new Date());
+          } catch (error) {
+            console.error("[sign-in code] could not check how often a code was sent", error);
+            throw new SignInRefusal("EmailSignin");
+          }
+          if (verdict !== "ok") throw new SignInRefusal(REFUSALS[verdict]);
+        }
+        return allowSignIn(params);
+      },
       session: ({ session, user }) => {
         if (session.user) {
           session.user.id = user.id;
