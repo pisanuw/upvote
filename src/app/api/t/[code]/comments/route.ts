@@ -8,7 +8,9 @@ import nodemailer from "nodemailer";
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
-async function notifyTopicOwner(
+// Mails the site owner (not the topic's author). The recipient is ADMIN_EMAIL,
+// falling back to AUTH_SMTP_FROM (the sender) while ADMIN_EMAIL is unset.
+async function notifySiteOwner(
   topicTitle: string,
   topicShortCode: string,
   authorName: string,
@@ -20,6 +22,10 @@ async function notifyTopicOwner(
     !process.env.AUTH_SMTP_PASS ||
     !process.env.AUTH_SMTP_FROM
   ) {
+    return;
+  }
+  const recipient = process.env.ADMIN_EMAIL?.trim() || process.env.AUTH_SMTP_FROM;
+  if (!recipient) {
     return;
   }
 
@@ -37,7 +43,7 @@ async function notifyTopicOwner(
 
   await transport.sendMail({
     from: process.env.AUTH_SMTP_FROM,
-    to: process.env.AUTH_SMTP_FROM, // send to site owner
+    to: recipient,
     subject: `New comment on "${topicTitle}"`,
     text: [
       `${authorName} commented on your topic "${topicTitle}":`,
@@ -223,14 +229,14 @@ export async function POST(
 
   // Email notification — fire and forget, never fail the request
   if (topic.adminOwnerUserId) {
-    notifyTopicOwner(
+    notifySiteOwner(
       topic.title,
       topic.shortCode,
       comment.authorName,
       comment.body,
     ).catch((err) => {
       // Best-effort notification: never fail the request, but do not swallow silently.
-      console.error("notifyTopicOwner failed", err);
+      console.error("notifySiteOwner failed", err);
     });
   }
 

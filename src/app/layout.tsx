@@ -1,13 +1,8 @@
 import type { Metadata } from "next";
-import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import { IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { NavBar } from "@/components/nav-bar";
 import { SiteFooter } from "@/components/site-footer";
-
-const headingFont = Space_Grotesk({
-  variable: "--font-heading",
-  subsets: ["latin"],
-});
 
 const monoFont = IBM_Plex_Mono({
   variable: "--font-mono",
@@ -28,7 +23,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${headingFont.variable} ${monoFont.variable} h-full antialiased`}
+      className={`${monoFont.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <NavBar />

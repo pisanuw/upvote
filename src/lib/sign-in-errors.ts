@@ -1,22 +1,43 @@
 /**
  * Plain words for sign-in errors: NextAuth's `?error=` codes (it sends sign-in
- * errors to the sign-in page, pages.signIn) and the email form's own codes.
- * An unknown code gets the Default message; the code itself is never shown,
- * since anyone can put any text in a link.
+ * errors to the sign-in page, pages.signIn), the email form's own codes and
+ * the sign-in code's (src/lib/sign-in-code.ts). An unknown code gets the
+ * Default message; the code itself is never shown, since anyone can put any
+ * text in a link.
  */
-const GOOGLE_DID_NOT_FINISH = "Google sign-in did not finish. Try again, or get a sign-in link by email.";
+import { SIGN_IN_CODE_LENGTH } from "@/lib/sign-in-code";
+
+const GOOGLE_DID_NOT_FINISH = "Google sign-in did not finish. Try again, or get a sign-in code by email.";
 
 const MESSAGES = new Map<string, string>([
   // The email form's own codes.
   ["EmailRequired", "Enter your email address."],
   ["EmailInvalid", "Enter a full email address, like name@example.com."],
-  ["Network", "We could not send the link just now. Check your connection and try again."],
+  ["Network", "We could not reach UpvoteMe just now. Check your connection and try again."],
+  ["CodeRequired", `Enter the ${SIGN_IN_CODE_LENGTH}-digit code from the email.`],
+  ["CodeInvalid", `A sign-in code is ${SIGN_IN_CODE_LENGTH} digits. Check the email and type the code again.`],
+  ["CodeWrong", "That code is wrong or has expired. Check the email and try again, or send a new code."],
+  ["CodeTooManyTries", "Too many wrong tries for this code, so it no longer works. Send a new code."],
+  [
+    "CodeResendWait",
+    "We sent a code less than a minute ago. Use that one, or wait a minute and send a new code.",
+  ],
+  // The server's answers to a code request.
+  ["EmailCodeWait", "We sent a code to this address less than a minute ago. Wait a minute, then ask for a new one."],
+  [
+    "EmailCodeLimit",
+    "We have sent this address as many sign-in codes as we can for now. A code you already got in this browser still works until it expires. Otherwise try again later, or continue with Google.",
+  ],
+  [
+    "EmailCodeClientLimit",
+    "Too many sign-in codes have been asked for from your network. Try again later, or continue with Google.",
+  ],
   // NextAuth's codes.
-  ["EmailSignin", "We could not send a sign-in link to that address. Check the address and try again."],
-  ["Verification", "That sign-in link has expired or has already been used. Enter your email to get a new one."],
+  ["EmailSignin", "We could not send a sign-in code to that address. Check the address and try again."],
+  ["Verification", "That sign-in link has expired or has already been used. Enter your email to get a sign-in code."],
   [
     "OAuthAccountNotLinked",
-    "That email address already signs in another way. Sign in the way you did before, for example with an email link.",
+    "That email address already signs in another way. Sign in the way you did before, for example with an emailed code.",
   ],
   ["Signin", GOOGLE_DID_NOT_FINISH],
   ["OAuthSignin", GOOGLE_DID_NOT_FINISH],

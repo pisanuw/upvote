@@ -17,7 +17,7 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
 - admin URL: keep private for moderation
 - Optional auth-required voting mode:
 - creator must be authenticated to enable it
-- participants must sign in (Google or magic link) to vote
+- participants must sign in (Google or an emailed code) to vote
 - Topic admin controls:
 - lock or unlock comments
 - delete topic and all comments
@@ -116,13 +116,43 @@ Rollback to the app's own Google OAuth client: set
 `AUTH_GOOGLE_SECRET`, put `https://upvoteme.hintwise.org/api/auth/callback/google`
 back on the Google client, and redeploy (the variable is read at build time).
 
-For magic-link login (SMTP):
+For sign-in by emailed code (SMTP):
 
 - `AUTH_SMTP_HOST`
 - `AUTH_SMTP_PORT`
 - `AUTH_SMTP_USER`
 - `AUTH_SMTP_PASS`
-- `AUTH_SMTP_FROM`
+- `AUTH_SMTP_FROM` (the sender of the sign-in email and of the new-comment email)
+
+The sign-in email carries a 6-digit code, not a link (university mail scanners open
+links and would use them up). A code lasts 10 minutes and works only in the
+browser that asked for it (an httpOnly cookie), so nobody else can use it up;
+5 wrong codes void it. An address gets at most one code a minute, 6 an hour
+and 12 a day; one client, by the `x-nf-client-connection-ip` header Netlify
+sets (IPv6 by /64), at most 3 an hour and 4 a day per address, and 300 an
+hour and 1000 a day in all. Without that header the per-client limits are off
+and the function logs one warning. A browser that has signed in as an address
+holds a signed, year-long `known-browser` cookie (HMAC with `NEXTAUTH_SECRET`
+or `AUTH_SECRET`); it gets its own 3 an hour and 6 a day for that address and
+is not refused by the other limits, so a stranger who uses up an address's
+codes can only stop new browsers. Known limit: signing out does not clear that
+cookie, so on a shared computer the next person can still ask for that
+address's codes (they cannot read them) and guess, within its allowance, for
+a year; rotating the auth secret (`NEXTAUTH_SECRET`, or `AUTH_SECRET` when
+that is the one set) is the only way to revoke such cookies, and it revokes
+all of them. All numbers are in `CODE_LIMITS`
+(`src/lib/sign-in-code.ts`). The limits are rows in the `VerificationToken`
+table, so they hold on serverless (`src/lib/sign-in-code-store.ts`,
+`src/lib/sign-in-code-route.ts`, `src/lib/known-browser.ts`). `NEXTAUTH_URL`
+must be `https://upvoteme.hintwise.org`.
+
+For the new-comment notification:
+
+- `ADMIN_EMAIL` (optional): the address that receives the new-comment email.
+  When unset, the email goes to `AUTH_SMTP_FROM`, which is usually a no-reply
+  address. Set it as a plain (not secret-flagged) Netlify variable. A
+  secret-flagged `builder@hintwise.org` would trip Netlify's secret scan,
+  because the built footer contains `mailto:builder@hintwise.org`.
 
 For scheduled cleanup endpoint:
 

@@ -5,10 +5,20 @@ import Email from "next-auth/providers/email";
 import Credentials from "next-auth/providers/credentials";
 import { googleAuthMode } from "@/lib/google-sign-in";
 import { allowSignIn, supabaseAuthSettings, supabaseGoogleProvider } from "@/lib/supabase-auth";
+import { SIGN_IN_CODE_MINUTES, normalizeEmailAddress } from "@/lib/sign-in-code";
+import { generateSignInCode, sendSignInCodeEmail } from "@/lib/sign-in-code-email";
+import { knownBrowserId, knownBrowserSecret } from "@/lib/known-browser";
+import {
+  claimCodeRequest,
+  withSignInCodes,
+  type CodeContext,
+  type CodeRequestVerdict,
+  type TokenStore,
+} from "@/lib/sign-in-code-store";
 
 type Env = Record<string, string | undefined>;
 
-/** The providers for this environment: Google (through Supabase by default), magic link. */
+/** The providers for this environment: Google (through Supabase by default), an emailed code. */
 export function buildProviders(env: Env = process.env): NextAuthOptions["providers"] {
   const providers: NextAuthOptions["providers"] = [];
 
@@ -43,6 +53,11 @@ export function buildProviders(env: Env = process.env): NextAuthOptions["provide
           },
         },
         from: env.AUTH_SMTP_FROM,
+        // A 6-digit code in the email instead of a link (src/lib/sign-in-code.ts).
+        maxAge: SIGN_IN_CODE_MINUTES * 60,
+        generateVerificationToken: () => generateSignInCode(),
+        sendVerificationRequest: sendSignInCodeEmail,
+        normalizeIdentifier: normalizeEmailAddress,
       }),
     );
   }
@@ -60,16 +75,80 @@ export function buildProviders(env: Env = process.env): NextAuthOptions["provide
   return providers;
 }
 
-export function buildAuthOptions(adapter: Adapter, env: Env = process.env): NextAuthOptions {
+/**
+ * Ends a sign-in from the signIn callback with one of this app's error codes
+ * (src/lib/sign-in-errors.ts). For an email request NextAuth answers with
+ * .../error?error=String(error) (next-auth/core/routes/signin.js), so the
+ * string form is the bare code.
+ */
+export class SignInRefusal extends Error {
+  toString() {
+    return this.message;
+  }
+}
+
+const REFUSALS: Record<Exclude<CodeRequestVerdict, "ok">, string> = {
+  wait: "EmailCodeWait",
+  limit: "EmailCodeLimit",
+  "client-limit": "EmailCodeClientLimit",
+};
+
+/**
+ * The adapter and the sign-in code's rows (src/lib/sign-in-code-store.ts):
+ * a code belongs to its address and to the browser that asked for it, takes
+ * at most MAX_WRONG_CODES tries, and is sent within CODE_LIMITS. A request
+ * that issues or checks a code needs its CodeContext from the route
+ * (src/lib/sign-in-code-route.ts); without one, both are refused.
+ * `onSignedIn` hears the address of every sign-in that creates a session.
+ */
+export function buildAuthOptions(
+  adapter: Adapter,
+  codeStore: TokenStore,
+  env: Env = process.env,
+  codeContext?: CodeContext,
+  onSignedIn?: (email: string) => void,
+): NextAuthOptions {
   return {
-    adapter,
+    adapter: withSignInCodes(adapter, codeStore, codeContext),
+    // Tells the route who signed in, so it can mark the browser as known for
+    // that address (src/lib/known-browser.ts).
+    events: onSignedIn
+      ? {
+          signIn: ({ user }) => {
+            if (user.email) onSignedIn(user.email);
+          },
+        }
+      : undefined,
     session: { strategy: "database" },
     providers: buildProviders(env),
     pages: {
       signIn: "/signin",
     },
     callbacks: {
-      signIn: allowSignIn,
+      signIn: async (params) => {
+        if (params.email?.verificationRequest && params.account?.provider === "email") {
+          if (codeContext?.kind !== "request") throw new SignInRefusal("EmailSignin");
+          const address = params.account.providerAccountId;
+          const now = new Date();
+          let verdict: CodeRequestVerdict;
+          try {
+            verdict = await claimCodeRequest(
+              codeStore,
+              address,
+              {
+                client: codeContext.client,
+                knownBrowser: knownBrowserId(codeContext.knownBrowser, address, knownBrowserSecret(env), now),
+              },
+              now,
+            );
+          } catch (error) {
+            console.error("[sign-in code] could not check how often a code was sent", error);
+            throw new SignInRefusal("EmailSignin");
+          }
+          if (verdict !== "ok") throw new SignInRefusal(REFUSALS[verdict]);
+        }
+        return allowSignIn(params);
+      },
       session: ({ session, user }) => {
         if (session.user) {
           session.user.id = user.id;

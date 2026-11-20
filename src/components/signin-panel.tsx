@@ -34,14 +34,14 @@ export function SignInPanel({
     <div className="flex flex-wrap gap-2">
       <GoogleSignInButton onClick={() => signIn(googleProviderId(), { callbackUrl })} />
       <Link href={signInHref(callbackUrl)} className={SIGN_IN_LINK_CLASS}>
-        Email me a sign-in link
+        Email me a sign-in code
       </Link>
     </div>
   );
 }
 
 /** The sign-in page's options: Google, an "or" divider, then the email form. */
-export function SignInOptions({ callbackUrl }: { callbackUrl: string }) {
+export function SignInOptions({ callbackUrl, hasPendingCode = false }: { callbackUrl: string; hasPendingCode?: boolean }) {
   return (
     <div>
       <GoogleSignInButton fullWidth onClick={() => signIn(googleProviderId(), { callbackUrl })} />
@@ -50,7 +50,7 @@ export function SignInOptions({ callbackUrl }: { callbackUrl: string }) {
         or
         <span aria-hidden className="h-px flex-1 bg-slate-200" />
       </div>
-      <EmailSignInForm callbackUrl={callbackUrl} />
+      <EmailSignInForm callbackUrl={callbackUrl} hasPendingCode={hasPendingCode} />
     </div>
   );
 }

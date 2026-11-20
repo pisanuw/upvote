@@ -5,16 +5,22 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { Session } from "next-auth";
 
-const state = vi.hoisted(() => ({ session: null as Session | null, pathname: "/" as string | null, search: "" }));
+const state = vi.hoisted(() => ({
+  session: null as Session | null,
+  pathname: "/" as string | null,
+  search: "",
+  cookies: [] as string[],
+}));
 
 vi.mock("@/auth", () => ({ auth: async () => state.session }));
 vi.mock("next/navigation", () => ({
   usePathname: () => state.pathname,
   useSearchParams: () => new URLSearchParams(state.search),
 }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ has: (name: string) => state.cookies.includes(name) }) }));
 
 import SignInPage from "@/app/signin/page";
-import { NavBarClient, magicLinkHref } from "@/components/nav-bar-client";
+import { NavBarClient, emailSignInHref } from "@/components/nav-bar-client";
 import { SignInPanel } from "@/components/signin-panel";
 import { signInErrorMessage } from "@/lib/sign-in-errors";
 
@@ -32,12 +38,13 @@ beforeEach(() => {
   state.session = null;
   state.pathname = "/";
   state.search = "";
+  state.cookies = [];
 });
 
 describe("/signin, signed out", () => {
   it("shows the heading, Google, an 'or' divider, then the email form, in that order", async () => {
     const html = await renderPage();
-    const order = ["<h1", ">Sign in</h1>", "Continue with Google", ">or<", 'type="email"', "Email me a sign-in link"].map((s) =>
+    const order = ["<h1", ">Sign in</h1>", "Continue with Google", ">or<", 'type="email"', "Email me a sign-in code"].map((s) =>
       html.indexOf(s),
     );
     expect(order.every((i) => i >= 0)).toBe(true);
@@ -47,7 +54,9 @@ describe("/signin, signed out", () => {
 
   it("makes the Google button and the email button the same width and shape", async () => {
     const html = await renderPage();
-    const buttons = [...html.matchAll(/<button [^>]*class="([^"]*)"/g)].map((m) => m[1]);
+    const buttons = [...html.matchAll(/<button [^>]*class="([^"]*)"[^>]*>([\s\S]*?)<\/button>/g)]
+      .filter((m) => /Continue with Google|Email me a sign-in code/.test(m[2]))
+      .map((m) => m[1]);
     expect(buttons).toHaveLength(2);
     for (const cls of buttons) {
       expect(cls).toContain("inline-flex h-10 shrink-0 items-center");
@@ -56,8 +65,8 @@ describe("/signin, signed out", () => {
   });
 
   it.each([
-    ["Verification", "That sign-in link has expired or has already been used."],
-    ["EmailSignin", "We could not send a sign-in link to that address."],
+    ["Verification", "That sign-in link has expired or has already been used. Enter your email to get a sign-in code."],
+    ["EmailSignin", "We could not send a sign-in code to that address."],
     ["OAuthAccountNotLinked", "That email address already signs in another way."],
     ["OAuthCallback", "Google sign-in did not finish."],
     ["Default", "Something went wrong while signing you in."],
@@ -66,6 +75,18 @@ describe("/signin, signed out", () => {
     expect(html).toMatch(/<p role="alert"[^>]*>/);
     expect(html).toContain(words);
     expect(html).not.toContain(`>${code}<`);
+  });
+
+  it("offers 'Type a code I asked for in this browser' only when this browser holds a code cookie", async () => {
+    expect(await renderPage()).not.toContain("Type a code I asked for in this browser");
+    state.cookies = ["__Host-next-auth.csrf-token", "__Host-upvoteme.known-browser"];
+    expect(await renderPage()).not.toContain("Type a code I asked for in this browser");
+    for (const name of ["__Host-upvoteme.signin-code", "upvoteme.signin-code"]) {
+      state.cookies = [name];
+      const html = await renderPage();
+      expect(html).toContain("Type a code I asked for in this browser</button>");
+      expect(html.indexOf("Type a code I asked for")).toBeGreaterThan(html.indexOf("Email me a sign-in code"));
+    }
   });
 
   it("never shows the raw text of an unknown code", async () => {
@@ -111,35 +132,36 @@ describe("top bar, signed out", () => {
     return renderToStaticMarkup(createElement(NavBarClient, { user: null }));
   }
 
-  it("links Magic link to the sign-in page, returning to the current page", () => {
+  it("links Email code to the sign-in page, returning to the current page", () => {
     state.pathname = "/t/abc123";
     const html = topBar();
-    expect(hrefOf(html, "Magic link")).toBe("/signin?callbackUrl=/t/abc123");
-    expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>).)*Magic link/);
+    expect(hrefOf(html, "Email code")).toBe("/signin?callbackUrl=/t/abc123");
+    expect(html).not.toMatch(/<button[^>]*>(?:(?!<\/button>).)*Email code/);
+    expect(html).not.toContain("Magic link");
   });
 
   it("keeps the query, so a thread view comes back to itself", () => {
     state.pathname = "/t/abc123";
     state.search = "root=c1";
-    expect(hrefOf(topBar(), "Magic link")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
-    expect(magicLinkHref("/t/abc123", "root=c1")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
-    expect(magicLinkHref("/..//evil.example", "")).toBe("/signin?callbackUrl=/");
+    expect(hrefOf(topBar(), "Email code")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
+    expect(emailSignInHref("/t/abc123", "root=c1")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
+    expect(emailSignInHref("/..//evil.example", "")).toBe("/signin?callbackUrl=/");
   });
 
   it("keeps the compact look: envelope icon, label hidden on phones, round on small screens", () => {
     state.pathname = "/";
     const html = topBar();
-    const link = html.match(/<a [^>]*>.*?Magic link.*?<\/a>/)![0];
+    const link = html.match(/<a [^>]*>.*?Email code.*?<\/a>/)![0];
     expect(link).toContain("max-sm:w-10 max-sm:px-[9px]");
     expect(link).toContain("<svg");
-    expect(link).toContain('<span class="max-sm:sr-only">Magic link</span>');
+    expect(link).toContain('<span class="max-sm:sr-only">Email code</span>');
     expect(html).toContain("Sign in with Google");
   });
 
   it("points at the email field when already on the sign-in page", () => {
-    expect(magicLinkHref("/signin")).toBe("#signin-email");
-    expect(magicLinkHref(null)).toBe("/signin?callbackUrl=/");
-    expect(magicLinkHref("/")).toBe("/signin?callbackUrl=/");
+    expect(emailSignInHref("/signin")).toBe("#signin-email");
+    expect(emailSignInHref(null)).toBe("/signin?callbackUrl=/");
+    expect(emailSignInHref("/")).toBe("/signin?callbackUrl=/");
   });
 });
 
@@ -147,7 +169,7 @@ describe("topic page sign-in box", () => {
   it("keeps Google and links the email option to the sign-in page, returning to the topic", () => {
     const html = renderToStaticMarkup(createElement(SignInPanel, { isSignedIn: false, callbackUrl: "/t/abc123" }));
     expect(html).toContain("Continue with Google");
-    expect(hrefOf(html, "Email me a sign-in link")).toBe("/signin?callbackUrl=/t/abc123");
+    expect(hrefOf(html, "Email me a sign-in code")).toBe("/signin?callbackUrl=/t/abc123");
   });
 });
 
