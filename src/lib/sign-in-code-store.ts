@@ -9,28 +9,37 @@
  * (provider.generateVerificationToken), mails it, stores
  * sha256(code + secret) with createVerificationToken, and on sign-in looks it
  * up with useVerificationToken. withSignInCodes wraps those two adapter
- * methods:
+ * methods, with what the route knows about the request (CodeContext):
  *
- * - The stored token is bound to the address: sha256 of the address and
- *   NextAuth's hash. NextAuth's hash has no address in it and the column is
- *   @unique, so with 6-digit codes two addresses given the same code would
- *   collide and the second request would fail.
- * - Issuing a code deletes the address's earlier rows (old codes, old links,
- *   the wrong-code count) and purges every expired row; NextAuth never does.
- * - Each try at a code first adds a row, then counts the address's rows.
- *   Adding before counting means concurrent tries see each other, so no more
- *   than MAX_WRONG_CODES tries are ever checked against one code. After the
- *   last allowed wrong code, the address's codes are deleted.
+ * - A code belongs to the browser that asked for it. The request sets a
+ *   random httpOnly cookie (src/lib/sign-in-code-route.ts), and the code's row
+ *   is filed under the address and a hash of that cookie, with a token that
+ *   binds the address, the cookie and NextAuth's hash. NextAuth's hash alone
+ *   has no address in it and the column is @unique, so with 6-digit codes two
+ *   addresses (or two browsers) given the same code would otherwise collide.
+ * - A try without that browser's cookie finds no code and is refused before
+ *   anything is counted or written, so nobody else can use up, or void, the
+ *   code (no lockout by outsiders). A GET with a link sent before codes only
+ *   ever reaches those old rows.
+ * - Issuing a code deletes this browser's earlier code for the address, its
+ *   wrong-try count, and the address's links sent before codes; and purges
+ *   expired rows in this module's own namespace. It never touches other
+ *   rows: the database is shared with another app.
+ * - Each try is counted as a row added before it is checked (after a count
+ *   that skips the write once the limit is reached). Adding before the final
+ *   count means concurrent tries see each other, so no more than
+ *   MAX_WRONG_CODES tries ever reach a code. The last allowed wrong code
+ *   deletes it.
  *
- * Rows other than codes use identifiers that start with a capital letter.
- * NextAuth lower-cases every address (normalizeEmailAddress), so they can
- * never be an address, and a lookup for anything that is not a lower-cased
- * address is refused.
+ * Rows other than links sent before codes use identifiers starting with
+ * "Sign-in code" (NAMESPACE). NextAuth lower-cases every address
+ * (normalizeEmailAddress), so they can never be an address, and a lookup for
+ * anything that is not a lower-cased address is refused.
  */
 import { createHash, randomUUID } from "node:crypto";
 import type { Adapter, VerificationToken } from "next-auth/adapters";
 import {
-  MAX_CODES_PER_HOUR,
+  CODE_LIMITS,
   MAX_WRONG_CODES,
   SIGN_IN_CODE_MINUTES,
   SIGN_IN_CODE_RESEND_SECONDS,
@@ -45,17 +54,36 @@ export interface TokenStore {
   take(identifier: string, token: string): Promise<VerificationToken | null>;
   /** Deletes every row with this identifier. */
   clear(identifier: string): Promise<void>;
-  /** Deletes expired rows: all of them, or only this identifier's. */
-  purgeExpired(now: Date, identifier?: string): Promise<void>;
-  /** Counts this identifier's rows that have not expired. */
-  countLive(identifier: string, now: Date): Promise<number>;
+  /** Deletes the expired rows whose identifier starts with `prefix`. */
+  purgeExpired(now: Date, prefix: string): Promise<void>;
+  /** Counts this identifier's rows that are still live at `at` (expires > at). */
+  countLive(identifier: string, at: Date): Promise<number>;
 }
 
-const ATTEMPT = "Sign-in code attempt: ";
-const WAIT = "Sign-in code wait: ";
-const SENT = "Sign-in code sent: ";
+/**
+ * What the route knows about the request NextAuth is handling:
+ * - "request": a code request; the browser's key (its cookie, new or kept),
+ *   the client (IP address or IPv6 /64, "unknown" without one), and a
+ *   callback for when a code bound to that key was stored (then the route
+ *   sets the cookie).
+ * - "code": a typed code; the browser's key from its cookie, or null.
+ * - "link": a GET with a link sent before codes.
+ */
+export type CodeContext =
+  | { kind: "request"; browserKey: string; client: string; onStored: () => void }
+  | { kind: "code"; browserKey: string | null }
+  | { kind: "link" };
+
+export const NAMESPACE = "Sign-in code";
+const CODE = `${NAMESPACE}: `;
+const ATTEMPT = `${NAMESPACE} attempt: `;
+const WAIT = `${NAMESPACE} wait: `;
+const SENT = `${NAMESPACE} sent: `;
+const CLIENT = `${NAMESPACE} client: `;
 
 const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 const later = (now: Date, ms: number) => new Date(now.getTime() + ms);
 
@@ -69,38 +97,79 @@ function isStoredAddress(identifier: unknown): identifier is string {
   }
 }
 
+/** A browser's key as it is filed: a hash, so the cookie itself is never stored. */
+function browserId(browserKey: string): string {
+  return createHash("sha256").update(`UpvoteMe sign-in browser\n${browserKey}`).digest("hex").slice(0, 32);
+}
+
+/** Where a browser's code for an address, and its wrong tries, are filed. */
+export const codeIdentifier = (identifier: string, browserKey: string) => `${CODE}${identifier} ${browserId(browserKey)}`;
+const attemptIdentifier = (identifier: string, browserKey: string) => `${ATTEMPT}${identifier} ${browserId(browserKey)}`;
+
 /**
  * The token column for a code: NextAuth's hash (sha256(code + secret)) bound
- * to the address, so equal codes for two addresses are two different rows.
- * The hash is always 64 hex characters at the end, so no two (address, hash)
- * pairs give the same input.
+ * to the address and the browser's key, so equal codes for two addresses or
+ * two browsers are two different rows. The hash is always 64 hex characters
+ * at the end, and neither an address nor a key contains a newline, so no two
+ * inputs give the same text.
  */
-export function bindToAddress(identifier: string, hashedCode: string): string {
-  return createHash("sha256").update(`UpvoteMe sign-in code\n${identifier}\n${hashedCode}`).digest("hex");
+export function bindCode(identifier: string, browserKey: string, hashedCode: string): string {
+  return createHash("sha256")
+    .update(`UpvoteMe sign-in code\n${identifier}\n${browserKey}\n${hashedCode}`)
+    .digest("hex");
 }
 
 /**
- * NextAuth's adapter with sign-in codes kept the way the header describes.
- * The base adapter's own verification-token methods are no longer used.
+ * NextAuth's adapter with sign-in codes kept the way the header describes,
+ * for one request. The base adapter's own verification-token methods are no
+ * longer used.
  */
-export function withSignInCodes(adapter: Adapter, store: TokenStore, clock: () => Date = () => new Date()): Adapter {
+export function withSignInCodes(
+  adapter: Adapter,
+  store: TokenStore,
+  context: CodeContext | undefined,
+  clock: () => Date = () => new Date(),
+): Adapter {
   return {
     ...adapter,
 
     async createVerificationToken({ identifier, token, expires }) {
+      if (context?.kind !== "request") throw new Error("A sign-in code needs the browser that asked for it.");
       const now = clock();
-      await store.purgeExpired(now);
+      await store.purgeExpired(now, NAMESPACE);
       await store.clear(identifier);
-      await store.clear(ATTEMPT + identifier);
-      await store.add({ identifier, token: bindToAddress(identifier, token), expires });
+      await store.clear(codeIdentifier(identifier, context.browserKey));
+      await store.clear(attemptIdentifier(identifier, context.browserKey));
+      await store.add({
+        identifier: codeIdentifier(identifier, context.browserKey),
+        token: bindCode(identifier, context.browserKey, token),
+        expires,
+      });
+      context.onStored();
       return { identifier, token, expires };
     },
 
     async useVerificationToken({ identifier, token }) {
       if (!isStoredAddress(identifier) || typeof token !== "string") return null;
       const now = clock();
-      const attempts = ATTEMPT + identifier;
 
+      // A link sent before codes: its row holds NextAuth's hash as is, under
+      // the bare address. Nothing is counted; no code can be reached.
+      if (context?.kind === "link") {
+        const row = await store.take(identifier, token);
+        return row && row.expires > now ? row : null;
+      }
+
+      // A code: only from the browser that asked for it, and only while it has one.
+      if (context?.kind !== "code" || !context.browserKey) return null;
+      const codes = codeIdentifier(identifier, context.browserKey);
+      if ((await store.countLive(codes, now)) === 0) return null;
+
+      const attempts = attemptIdentifier(identifier, context.browserKey);
+      if ((await store.countLive(attempts, now)) >= MAX_WRONG_CODES) {
+        await store.clear(codes);
+        return null;
+      }
       // Count this try before checking it (see the header).
       await store.add({
         identifier: attempts,
@@ -109,39 +178,77 @@ export function withSignInCodes(adapter: Adapter, store: TokenStore, clock: () =
       });
       const tries = await store.countLive(attempts, now);
       if (tries > MAX_WRONG_CODES) {
-        await store.clear(identifier);
+        await store.clear(codes);
         return null;
       }
 
-      // A code, or a link sent before codes (its row holds NextAuth's hash as is).
-      const row = (await store.take(identifier, bindToAddress(identifier, token))) ?? (await store.take(identifier, token));
+      const row = await store.take(codes, bindCode(identifier, context.browserKey, token));
       if (row && row.expires > now) {
         await store.clear(attempts);
-        return row;
+        return { identifier, token, expires: row.expires };
       }
-      if (tries >= MAX_WRONG_CODES) await store.clear(identifier);
+      if (tries >= MAX_WRONG_CODES) await store.clear(codes);
       return null;
     },
   };
 }
 
-export type CodeRequestVerdict = "ok" | "wait" | "limit";
+export type CodeRequestVerdict = "ok" | "wait" | "limit" | "client-limit";
+
+type Limit = { hour: number; day: number };
+
+/** Rows live for a day; those still live an hour before they expire were added in the last hour. */
+async function sentCounts(store: TokenStore, identifier: string, now: Date) {
+  const [hour, day] = await Promise.all([
+    store.countLive(identifier, later(now, DAY - HOUR)),
+    store.countLive(identifier, now),
+  ]);
+  return { hour, day };
+}
+
+const reached = (n: { hour: number; day: number }, limit: Limit) => n.hour >= limit.hour || n.day >= limit.day;
+const exceeded = (n: { hour: number; day: number }, limit: Limit) => n.hour > limit.hour || n.day > limit.day;
 
 /**
- * May a code be sent to this address now? At most one per
- * SIGN_IN_CODE_RESEND_SECONDS (a row with a fixed token: of two requests at
- * the same moment, the second finds it taken) and MAX_CODES_PER_HOUR an
- * hour. A refused request leaves the address's current code working.
+ * May a code be sent to this address, for this client, now?
+ * - At most one per SIGN_IN_CODE_RESEND_SECONDS per address: a row with a
+ *   fixed token, so of two requests at the same moment the second finds it
+ *   taken.
+ * - CODE_LIMITS per hour and per day: per address, per client and address,
+ *   and per client. Counts are read first and nothing is written once a
+ *   limit is reached. The per-address counts are then exact (one request a
+ *   minute gets past the fixed-token row); the client's count is added
+ *   before it is read again, so a burst of requests from one client sees
+ *   itself.
+ * A refused request leaves the address's codes working.
  */
-export async function claimCodeRequest(store: TokenStore, identifier: string, now: Date): Promise<CodeRequestVerdict> {
+export async function claimCodeRequest(
+  store: TokenStore,
+  identifier: string,
+  client: string,
+  now: Date,
+): Promise<CodeRequestVerdict> {
+  const fromClient = CLIENT + client;
+  const toAddress = SENT + identifier;
+  const toAddressFromClient = `${SENT}${identifier} from ${client}`;
+
+  if (reached(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) return "client-limit";
+  if (reached(await sentCounts(store, toAddressFromClient, now), CODE_LIMITS.clientAndAddress)) return "limit";
+  if (reached(await sentCounts(store, toAddress, now), CODE_LIMITS.address)) return "limit";
+
   const wait = WAIT + identifier;
   await store.purgeExpired(now, wait);
   if (!(await store.add({ identifier: wait, token: wait, expires: later(now, SIGN_IN_CODE_RESEND_SECONDS * 1000) }))) {
     return "wait";
   }
-  const sent = SENT + identifier;
-  if ((await store.countLive(sent, now)) >= MAX_CODES_PER_HOUR) return "limit";
-  await store.add({ identifier: sent, token: `${sent} ${randomUUID()}`, expires: later(now, 60 * MINUTE) });
+
+  await store.add({ identifier: fromClient, token: `${fromClient} ${randomUUID()}`, expires: later(now, DAY) });
+  if (exceeded(await sentCounts(store, fromClient, now), CODE_LIMITS.client)) {
+    await store.clear(wait);
+    return "client-limit";
+  }
+  await store.add({ identifier: toAddress, token: `${toAddress} ${randomUUID()}`, expires: later(now, DAY) });
+  await store.add({ identifier: toAddressFromClient, token: `${toAddressFromClient} ${randomUUID()}`, expires: later(now, DAY) });
   return "ok";
 }
 
@@ -152,7 +259,9 @@ export interface VerificationTokenClient {
     findUnique(args: {
       where: { identifier_token: { identifier: string; token: string } };
     }): Promise<VerificationToken | null>;
-    deleteMany(args: { where: { identifier?: string; token?: string; expires?: { lt: Date } } }): Promise<{ count: number }>;
+    deleteMany(args: {
+      where: { identifier?: string | { startsWith: string }; token?: string; expires?: { lt: Date } };
+    }): Promise<{ count: number }>;
     count(args: { where: { identifier: string; expires: { gt: Date } } }): Promise<number>;
   };
 }
@@ -179,11 +288,11 @@ export function prismaTokenStore(prisma: VerificationTokenClient): TokenStore {
     async clear(identifier) {
       await rows.deleteMany({ where: { identifier } });
     },
-    async purgeExpired(now, identifier) {
-      await rows.deleteMany({ where: { ...(identifier === undefined ? {} : { identifier }), expires: { lt: now } } });
+    async purgeExpired(now, prefix) {
+      await rows.deleteMany({ where: { identifier: { startsWith: prefix }, expires: { lt: now } } });
     },
-    async countLive(identifier, now) {
-      return rows.count({ where: { identifier, expires: { gt: now } } });
+    async countLive(identifier, at) {
+      return rows.count({ where: { identifier, expires: { gt: at } } });
     },
   };
 }

@@ -7,15 +7,14 @@ import { signInErrorMessage } from "@/lib/sign-in-errors";
 import { MAX_WRONG_CODES, SIGN_IN_CODE_LENGTH, SIGN_IN_CODE_MINUTES, normalizeSignInCode } from "@/lib/sign-in-code";
 
 /**
- * The code step: the address the code went to, how the person got here
- * ("sent", "resent", or "entered": they already had a code), what is
- * happening, an error code (src/lib/sign-in-errors.ts), and the wrong codes
- * typed since the last code was sent.
+ * The code step: the address the code went to, whether it was the first or
+ * a new code, what is happening, an error code (src/lib/sign-in-errors.ts),
+ * and the wrong codes typed since the last code was sent.
  */
 export type CodeStep = {
   kind: "code";
   email: string;
-  note: "sent" | "resent" | "entered";
+  note: "sent" | "resent";
   busy?: "verifying" | "resending" | "signed-in";
   error?: string;
   wrong: number;
@@ -55,15 +54,21 @@ const postToNextAuth: PostSignInCode = async (body) => {
 };
 
 /**
- * The same shape NextAuth's Email provider accepts (one "@", a dot in the
- * domain, no quotes or spaces), so the form says what is wrong before asking
- * the server.
+ * The same shape the server accepts (one "@", a dot in the domain, no quotes,
+ * spaces or < > ( ) , ; :, see normalizeEmailAddress), so the form says what
+ * is wrong before asking the server.
  */
 export function isPlausibleEmail(value: string): boolean {
   const parts = value.split("@");
   if (parts.length !== 2) return false;
   const [local, domain] = parts;
-  return local.length > 0 && domain.includes(".") && !/[\s"]/.test(value) && !domain.startsWith(".") && !domain.endsWith(".");
+  return (
+    local.length > 0 &&
+    domain.includes(".") &&
+    !/["\s<>(),;:]/.test(value) &&
+    !domain.startsWith(".") &&
+    !domain.endsWith(".")
+  );
 }
 
 function baseUrl(): string {
@@ -135,8 +140,10 @@ export async function requestSignInCode(
 
 /**
  * Checks a typed code with NextAuth's email callback (the code in the POST
- * body, src/lib/sign-in-code-route.ts). On success the session cookie is
- * set and the caller moves on to callbackUrl. Never throws.
+ * body, src/lib/sign-in-code-route.ts). The browser's sign-in code cookie
+ * goes with it: a code works only in the browser that asked for it. On
+ * success the session cookie is set and the caller moves on to callbackUrl.
+ * Never throws.
  */
 export async function verifySignInCode(
   email: string,
@@ -176,6 +183,14 @@ export function EnvelopeIcon({ className = "h-4 w-4 text-slate-500" }: { classNa
 
 export const EMAIL_INPUT_ID = "signin-email";
 export const CODE_INPUT_ID = "signin-code";
+
+/**
+ * Focuses the form's field in view: the email field, or on the code step the
+ * code field (the top bar's "Email code" on the sign-in page).
+ */
+export function focusSignInField(doc: Pick<Document, "getElementById"> = document): void {
+  (doc.getElementById(EMAIL_INPUT_ID) ?? doc.getElementById(CODE_INPUT_ID))?.focus();
+}
 const EMAIL_ERROR_ID = "signin-email-error";
 const CODE_HINT_ID = "signin-code-hint";
 const CODE_ERROR_ID = "signin-code-error";
@@ -193,8 +208,6 @@ type ViewProps = {
   onCodeChange: (code: string) => void;
   /** The email step's submit: email me a code. */
   onSubmit: (e: FormEvent<HTMLFormElement>) => void;
-  /** "I already have a code": the code step for the typed address. */
-  onHaveCode: () => void;
   /** The code step's submit: check the code. */
   onVerify: (e: FormEvent<HTMLFormElement>) => void;
   onResend: () => void;
@@ -210,7 +223,7 @@ function StatusText({ status }: { status: EmailFormStatus }) {
   const address = <strong className="wrap-anywhere">{status.email}</strong>;
   return (
     <>
-      <h2 className="text-lg font-bold">{status.note === "entered" ? "Enter your code" : "Check your email"}</h2>
+      <h2 className="text-lg font-bold">Check your email</h2>
       <p className="mt-1 text-sm">
         {status.note === "sent" && (
           <>
@@ -222,13 +235,8 @@ function StatusText({ status }: { status: EmailFormStatus }) {
             We sent a new code to {address}. Earlier codes no longer work.
           </>
         )}
-        {status.note === "entered" && (
-          <>
-            Type the {SIGN_IN_CODE_LENGTH}-digit code from the email we sent to {address}.
-          </>
-        )}
       </p>
-      {status.note !== "entered" && <p className="mt-1 text-sm">Nothing after a few minutes? Check your spam folder.</p>}
+      <p className="mt-1 text-sm">Type it here, in this browser. Nothing after a few minutes? Check your spam folder.</p>
       {status.busy === "verifying" && <span className="sr-only">Checking your code…</span>}
       {status.busy === "resending" && <span className="sr-only">Sending a new code…</span>}
       {status.busy === "signed-in" && <p className="mt-2 text-sm font-semibold">Signed in. Taking you back…</p>}
@@ -236,7 +244,7 @@ function StatusText({ status }: { status: EmailFormStatus }) {
   );
 }
 
-function EmailStep({ email, status, onEmailChange, onSubmit, onHaveCode, emailRef }: ViewProps) {
+function EmailStep({ email, status, onEmailChange, onSubmit, emailRef }: ViewProps) {
   const sending = status.kind === "sending";
   const error = status.kind === "error" ? signInErrorMessage(status.code) : null;
   return (
@@ -268,9 +276,6 @@ function EmailStep({ email, status, onEmailChange, onSubmit, onHaveCode, emailRe
       <button type="submit" disabled={sending} className={`${SIGN_IN_BUTTON_CLASS} mt-4 w-full gap-2`}>
         <EnvelopeIcon />
         {sending ? "Sending code…" : "Email me a sign-in code"}
-      </button>
-      <button type="button" disabled={sending} onClick={onHaveCode} className={`${TEXT_BUTTON_CLASS} mt-3 text-slate-700 hover:text-slate-900`}>
-        I already have a code
       </button>
     </form>
   );
@@ -345,8 +350,8 @@ export function EmailSignInFormView(props: ViewProps) {
 
 /**
  * Sign-in by email: the address, then the 6-digit code from the email, on
- * one page. The code can be typed on any device: the server checks it
- * against the address, nothing is kept in this browser.
+ * one page. The code works only in this browser: the request sets an
+ * httpOnly cookie that the server checks with the code.
  */
 export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
   const [email, setEmail] = useState("");
@@ -378,13 +383,6 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
     setStatus({ kind: "code", email: result.email, note: "sent", wrong: 0 });
   }
 
-  function haveCode() {
-    const invalid = checkAddress(email);
-    if (invalid) return setStatus(invalid);
-    setCode("");
-    setStatus({ kind: "code", email: email.trim(), note: "entered", wrong: 0 });
-  }
-
   async function verify(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (status.kind !== "code" || status.busy) return;
@@ -401,7 +399,11 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
     const step = status;
     setStatus({ ...step, busy: "resending", error: undefined });
     const result = await requestSignInCode(step.email, callbackUrl);
-    if (result.kind === "error") return setStatus({ ...step, busy: undefined, error: result.code });
+    if (result.kind === "error") {
+      // The code step still has the code from a minute ago, so say to use it.
+      const error = result.code === "EmailCodeWait" ? "CodeResendWait" : result.code;
+      return setStatus({ ...step, busy: undefined, error });
+    }
     setCode("");
     setStatus({ kind: "code", email: result.email, note: "resent", wrong: 0 });
   }
@@ -420,7 +422,6 @@ export function EmailSignInForm({ callbackUrl }: { callbackUrl: string }) {
         if (status.kind === "code" && status.error && !status.busy) setStatus({ ...status, error: undefined });
       }}
       onSubmit={submit}
-      onHaveCode={haveCode}
       onVerify={verify}
       onResend={resend}
       onReset={() => {

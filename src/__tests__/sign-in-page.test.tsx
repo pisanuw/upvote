@@ -37,7 +37,7 @@ beforeEach(() => {
 describe("/signin, signed out", () => {
   it("shows the heading, Google, an 'or' divider, then the email form, in that order", async () => {
     const html = await renderPage();
-    const order = ["<h1", ">Sign in</h1>", "Continue with Google", ">or<", 'type="email"', "Email me a sign-in code", "I already have a code"].map((s) =>
+    const order = ["<h1", ">Sign in</h1>", "Continue with Google", ">or<", 'type="email"', "Email me a sign-in code"].map((s) =>
       html.indexOf(s),
     );
     expect(order.every((i) => i >= 0)).toBe(true);

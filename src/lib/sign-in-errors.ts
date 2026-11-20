@@ -5,7 +5,7 @@
  * Default message; the code itself is never shown, since anyone can put any
  * text in a link.
  */
-import { MAX_CODES_PER_HOUR, SIGN_IN_CODE_LENGTH } from "@/lib/sign-in-code";
+import { SIGN_IN_CODE_LENGTH } from "@/lib/sign-in-code";
 
 const GOOGLE_DID_NOT_FINISH = "Google sign-in did not finish. Try again, or get a sign-in code by email.";
 
@@ -18,14 +18,19 @@ const MESSAGES = new Map<string, string>([
   ["CodeInvalid", `A sign-in code is ${SIGN_IN_CODE_LENGTH} digits. Check the email and type the code again.`],
   ["CodeWrong", "That code is wrong or has expired. Check the email and try again, or send a new code."],
   ["CodeTooManyTries", "Too many wrong tries for this code, so it no longer works. Send a new code."],
-  // The server's answers to a code request.
   [
-    "EmailCodeWait",
-    "We sent a code to this address less than a minute ago. Check your email, or wait a minute and send a new code.",
+    "CodeResendWait",
+    "We sent a code less than a minute ago. Use that one, or wait a minute and send a new code.",
   ],
+  // The server's answers to a code request.
+  ["EmailCodeWait", "We sent a code to this address less than a minute ago. Wait a minute, then ask for a new one."],
   [
     "EmailCodeLimit",
-    `We have sent ${MAX_CODES_PER_HOUR} codes to this address in the last hour. Use the newest one, or try again later.`,
+    "We have sent this address as many sign-in codes as we can for now. Use the newest one, try again later, or continue with Google.",
+  ],
+  [
+    "EmailCodeClientLimit",
+    "Too many sign-in codes have been asked for from your network. Try again later, or continue with Google.",
   ],
   // NextAuth's codes.
   ["EmailSignin", "We could not send a sign-in code to that address. Check the address and try again."],

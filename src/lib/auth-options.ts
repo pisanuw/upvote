@@ -7,7 +7,13 @@ import { googleAuthMode } from "@/lib/google-sign-in";
 import { allowSignIn, supabaseAuthSettings, supabaseGoogleProvider } from "@/lib/supabase-auth";
 import { SIGN_IN_CODE_MINUTES, normalizeEmailAddress } from "@/lib/sign-in-code";
 import { generateSignInCode, sendSignInCodeEmail } from "@/lib/sign-in-code-email";
-import { claimCodeRequest, withSignInCodes, type CodeRequestVerdict, type TokenStore } from "@/lib/sign-in-code-store";
+import {
+  claimCodeRequest,
+  withSignInCodes,
+  type CodeContext,
+  type CodeRequestVerdict,
+  type TokenStore,
+} from "@/lib/sign-in-code-store";
 
 type Env = Record<string, string | undefined>;
 
@@ -83,16 +89,24 @@ export class SignInRefusal extends Error {
 const REFUSALS: Record<Exclude<CodeRequestVerdict, "ok">, string> = {
   wait: "EmailCodeWait",
   limit: "EmailCodeLimit",
+  "client-limit": "EmailCodeClientLimit",
 };
 
 /**
  * The adapter and the sign-in code's rows (src/lib/sign-in-code-store.ts):
- * codes are bound to their address, limited to MAX_WRONG_CODES tries, and
- * sent at most once a minute and five times an hour per address.
+ * a code belongs to its address and to the browser that asked for it, takes
+ * at most MAX_WRONG_CODES tries, and is sent within CODE_LIMITS. A request
+ * that issues or checks a code needs its CodeContext from the route
+ * (src/lib/sign-in-code-route.ts); without one, both are refused.
  */
-export function buildAuthOptions(adapter: Adapter, codeStore: TokenStore, env: Env = process.env): NextAuthOptions {
+export function buildAuthOptions(
+  adapter: Adapter,
+  codeStore: TokenStore,
+  env: Env = process.env,
+  codeContext?: CodeContext,
+): NextAuthOptions {
   return {
-    adapter: withSignInCodes(adapter, codeStore),
+    adapter: withSignInCodes(adapter, codeStore, codeContext),
     session: { strategy: "database" },
     providers: buildProviders(env),
     pages: {
@@ -101,9 +115,10 @@ export function buildAuthOptions(adapter: Adapter, codeStore: TokenStore, env: E
     callbacks: {
       signIn: async (params) => {
         if (params.email?.verificationRequest && params.account?.provider === "email") {
+          if (codeContext?.kind !== "request") throw new SignInRefusal("EmailSignin");
           let verdict: CodeRequestVerdict;
           try {
-            verdict = await claimCodeRequest(codeStore, params.account.providerAccountId, new Date());
+            verdict = await claimCodeRequest(codeStore, params.account.providerAccountId, codeContext.client, new Date());
           } catch (error) {
             console.error("[sign-in code] could not check how often a code was sent", error);
             throw new SignInRefusal("EmailSignin");

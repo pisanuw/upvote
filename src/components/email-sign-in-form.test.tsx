@@ -6,6 +6,7 @@ import {
   EmailSignInForm,
   EmailSignInFormView,
   afterFailedCode,
+  focusSignInField,
   isPlausibleEmail,
   isVerifyRequestUrl,
   requestSignInCode,
@@ -28,7 +29,6 @@ function view(status: EmailFormStatus, email = "alice@example.com", code = "") {
       onEmailChange: noop,
       onCodeChange: noop,
       onSubmit: noop,
-      onHaveCode: noop,
       onVerify: noop,
       onResend: noop,
       onReset: noop,
@@ -266,14 +266,30 @@ describe("requestSignInCode with next-auth/react's signIn", () => {
 
 describe("isPlausibleEmail", () => {
   it.each(["a@b.co", "alice.smith+tag@example.co.uk"])("accepts %s", (v) => expect(isPlausibleEmail(v)).toBe(true));
-  it.each(["", "alice", "alice@", "@example.com", "a@b@c.com", "alice@localhost", 'a"b@c.com', "a b@c.com", "a@.com", "a@com."])(
+  it.each([
+    "",
+    "alice",
+    "alice@",
+    "@example.com",
+    "a@b@c.com",
+    "alice@localhost",
+    'a"b@c.com',
+    "a b@c.com",
+    "a@.com",
+    "a@com.",
+    "a <victim@uw.test>",
+    "victim@uw.test,x.co",
+    "victim@uw.test;x.co",
+    "(x)victim@uw.test",
+    "a:victim@uw.test",
+  ])(
     "rejects %j",
     (v) => expect(isPlausibleEmail(v)).toBe(false),
   );
 });
 
 describe("EmailSignInFormView, email step", () => {
-  it("has a labelled email field, the send button and a way in with a code already in hand", () => {
+  it("has a labelled email field and the send button, and no way in without asking for a code here", () => {
     const html = view({ kind: "idle" }, "");
     expect(html).toContain('<label for="signin-email"');
     expect(html).toContain(">Email address</label>");
@@ -282,7 +298,8 @@ describe("EmailSignInFormView, email step", () => {
       expect(input).toMatch(attr);
     }
     expect(html).toMatch(/<button type="submit" class="[^"]*inline-flex h-10 shrink-0[^"]*w-full[^"]*">.*Email me a sign-in code<\/button>/);
-    expect(html).toMatch(/<button type="button"[^>]*>I already have a code<\/button>/);
+    expect(html).not.toContain("already have a code");
+    expect(html).not.toContain('<button type="button"');
     expect(html).not.toContain('<button type="submit" disabled=""');
     expect(html).not.toContain('role="alert"');
     expect(html).not.toContain("link");
@@ -290,10 +307,9 @@ describe("EmailSignInFormView, email step", () => {
     expect(html).toContain('<div role="status" aria-live="polite"></div>');
   });
 
-  it("disables the buttons and says so while sending", () => {
+  it("disables the button and says so while sending", () => {
     const html = view({ kind: "sending" });
     expect(html).toMatch(/<button type="submit" disabled=""[^>]*>.*Sending code…<\/button>/);
-    expect(html).toMatch(/<button type="button" disabled=""[^>]*>I already have a code<\/button>/);
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('<div role="status" aria-live="polite"><span class="sr-only">Sending your sign-in code…</span></div>');
   });
@@ -309,8 +325,9 @@ describe("EmailSignInFormView, email step", () => {
   it("explains the form's own errors and the server's limits", () => {
     expect(view({ kind: "error", code: "EmailRequired" }, "")).toContain("Enter your email address.");
     expect(view({ kind: "error", code: "Network" })).toContain("We could not reach UpvoteMe just now.");
-    expect(view({ kind: "error", code: "EmailCodeWait" })).toContain("less than a minute ago");
-    expect(view({ kind: "error", code: "EmailCodeLimit" })).toContain("5 codes to this address in the last hour");
+    expect(view({ kind: "error", code: "EmailCodeWait" })).toContain("less than a minute ago. Wait a minute, then ask for a new one.");
+    expect(view({ kind: "error", code: "EmailCodeLimit" })).toContain("as many sign-in codes as we can for now");
+    expect(view({ kind: "error", code: "EmailCodeClientLimit" })).toContain("from your network");
   });
 });
 
@@ -320,6 +337,7 @@ describe("EmailSignInFormView, code step", () => {
     expect(html).toMatch(/<div role="status" aria-live="polite" class="[^"]*bg-emerald-50[^"]*"><h2[^>]*>Check your email<\/h2>/);
     expect(html).toContain("We sent a 6-digit code to <strong");
     expect(html).toContain(">alice@example.com</strong>. It expires in 10 minutes.");
+    expect(html).toContain("Type it here, in this browser.");
     expect(html).toContain('<label for="signin-code"');
     expect(html).toContain(">Sign-in code</label>");
     const input = html.match(/<input [^>]*>/)![0];
@@ -369,12 +387,6 @@ describe("EmailSignInFormView, code step", () => {
     expect(view(codeStep({ note: "resent" }))).toContain("Earlier codes no longer work.");
   });
 
-  it("asks for the code from an earlier email when the person already had one", () => {
-    const html = view(codeStep({ note: "entered" }));
-    expect(html).toContain(">Enter your code</h2>");
-    expect(html).toContain("Type the 6-digit code from the email we sent to <strong");
-  });
-
   it("disables the buttons and says so while checking, resending, and after signing in", () => {
     const verifying = view(codeStep({ busy: "verifying" }));
     expect(verifying).toMatch(/<button type="submit" disabled=""[^>]*>Signing in…<\/button>/);
@@ -386,10 +398,10 @@ describe("EmailSignInFormView, code step", () => {
     expect(view(codeStep({ busy: "signed-in" }))).toContain("Signed in. Taking you back…");
   });
 
-  it("explains a refused new code in the code step", () => {
-    const html = view(codeStep({ error: "EmailCodeWait" }));
+  it("explains a refused new code in the code step, pointing at the code already sent", () => {
+    const html = view(codeStep({ error: "CodeResendWait" }));
     expect(html).toContain('<p id="signin-code-error" role="alert"');
-    expect(html).toContain("less than a minute ago");
+    expect(html).toContain("We sent a code less than a minute ago. Use that one, or wait a minute and send a new code.");
   });
 });
 
@@ -400,5 +412,35 @@ describe("EmailSignInForm", () => {
     expect(html).toContain("Email me a sign-in code");
     expect(html).not.toContain('id="signin-code"');
     expect(html).not.toContain('role="alert"');
+  });
+});
+
+describe("focusSignInField", () => {
+  function fakeDocument(ids: string[]) {
+    const focused: string[] = [];
+    return {
+      focused,
+      doc: {
+        getElementById: (id: string) => (ids.includes(id) ? ({ focus: () => focused.push(id) } as unknown as HTMLElement) : null),
+      },
+    };
+  }
+
+  it("focuses the email field on the email step", () => {
+    const { doc, focused } = fakeDocument(["signin-email"]);
+    focusSignInField(doc);
+    expect(focused).toEqual(["signin-email"]);
+  });
+
+  it("focuses the code field on the code step, where there is no email field", () => {
+    const { doc, focused } = fakeDocument(["signin-code"]);
+    focusSignInField(doc);
+    expect(focused).toEqual(["signin-code"]);
+  });
+
+  it("does nothing off the sign-in form", () => {
+    const { doc, focused } = fakeDocument([]);
+    focusSignInField(doc);
+    expect(focused).toEqual([]);
   });
 });

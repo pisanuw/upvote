@@ -25,20 +25,36 @@ describe("normalizeSignInCode", () => {
   });
 });
 
-describe("normalizeEmailAddress (NextAuth v4's default normalizer)", () => {
+describe("normalizeEmailAddress (NextAuth v4's default normalizer, stricter)", () => {
   it.each([
     ["alice@example.com", "alice@example.com"],
     ["  Alice@Example.COM ", "alice@example.com"],
-    ["a@b.co,evil.example", "a@b.co"],
     ["ＡＬＩＣＥ@example.com", "alice@example.com"],
+    ["alice.smith+tag@example.co.uk", "alice.smith+tag@example.co.uk"],
   ])("stores %j as %s", (typed, stored) => expect(normalizeEmailAddress(typed)).toBe(stored));
 
   it.each(["", "alice", "a@b@c.com", 'a"b@c.com', "alice@localhost", "@example.com", "alice@"])("refuses %j", (typed) => {
     expect(() => normalizeEmailAddress(typed)).toThrow("Invalid email address format.");
   });
 
+  // Forms nodemailer reads as a display name or a list, which would mail the
+  // victim under another key and get past the per-address limits.
+  it.each([
+    "a <victim@uw.test>",
+    "<victim@uw.test>",
+    "victim@uw.test (x)",
+    "a@b.co,evil.example",
+    "victim@uw.test;x.co",
+    "a:victim@uw.test",
+    "vic tim@uw.test",
+    "victim@uw.test\tx",
+    "victim@uw.test\nx",
+  ])("refuses %j (whitespace or < > ( ) , ; :)", (typed) => {
+    expect(() => normalizeEmailAddress(typed)).toThrow("Invalid email address format.");
+  });
+
   it("is idempotent, so a stored address is its own normal form", () => {
-    for (const typed of ["  Alice@Example.COM ", "a@b.co,evil.example"]) {
+    for (const typed of ["  Alice@Example.COM ", "ＡＬＩＣＥ@example.com"]) {
       const once = normalizeEmailAddress(typed);
       expect(normalizeEmailAddress(once)).toBe(once);
     }

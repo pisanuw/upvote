@@ -125,10 +125,13 @@ For sign-in by emailed code (SMTP):
 - `AUTH_SMTP_FROM`
 
 The email carries a 6-digit code, not a link (university mail scanners open
-links and would use them up). A code lasts 10 minutes; 5 wrong codes void it;
-an address gets at most one code a minute and five an hour. The limits are
-rows in the `VerificationToken` table, so they hold on serverless
-(`src/lib/sign-in-code-store.ts`).
+links and would use them up). A code lasts 10 minutes and works only in the
+browser that asked for it (an httpOnly cookie), so nobody else can use it up;
+5 wrong codes void it. An address gets at most one code a minute, 6 an hour
+and 12 a day; one client, by the `x-nf-client-connection-ip` header Netlify
+sets, at most 3 an hour and 4 a day per address, and 50 an hour and 200 a day
+in all. The limits are rows in the `VerificationToken` table, so they hold on
+serverless (`src/lib/sign-in-code-store.ts`, `src/lib/sign-in-code-route.ts`).
 
 For scheduled cleanup endpoint:
 
