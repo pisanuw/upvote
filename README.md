@@ -143,7 +143,11 @@ and the function logs one warning. A browser that has signed in as an address
 holds a signed, year-long `known-browser` cookie (HMAC with `NEXTAUTH_SECRET`
 or `AUTH_SECRET`); it gets its own 3 an hour and 6 a day for that address and
 is not refused by the other limits, so a stranger who uses up an address's
-codes can only stop new browsers. All numbers are in `CODE_LIMITS`
+codes can only stop new browsers. Known limit: signing out does not clear that
+cookie, so on a shared computer the next person can still ask for that
+address's codes (they cannot read them) and guess, within its allowance, for
+a year; rotating `NEXTAUTH_SECRET` is the only way to revoke such cookies, and
+it revokes all of them. All numbers are in `CODE_LIMITS`
 (`src/lib/sign-in-code.ts`). The limits are rows in the `VerificationToken`
 table, so they hold on serverless (`src/lib/sign-in-code-store.ts`,
 `src/lib/sign-in-code-route.ts`, `src/lib/known-browser.ts`). `NEXTAUTH_URL`
