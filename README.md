@@ -30,10 +30,13 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
 - topics are only accessible via shared short URLs
 - visits are counted for HintWise's own analytics (`public/hw-events.js`),
   with no cookie and nothing kept in the browser: the page's path (ids
-  masked), how long it was open, and the host of a link followed out. Never
-  what a visitor types; nothing is sent under Global Privacy Control or Do
-  Not Track. The access code in a topic (`/t/...`) or admin (`/a/...`)
-  address is always sent as `:id`, never the code itself.
+  masked), the referring site's host, how long it was open, the host of a
+  link followed out, the first three script errors on a page (quoted text,
+  email addresses and long numbers removed), and two counts: a topic created
+  (with whether voting needs sign-in) and a sign-in started (Google or
+  email). Never what a visitor types; nothing is sent under Global Privacy
+  Control or Do Not Track. The access code in a topic (`/t/...`) or admin
+  (`/a/...`) address is always sent as `:id`, never the code itself.
 - Auto-cleanup:
 - topics are deleted after 30 days of inactivity
 - lazy deletion on access
