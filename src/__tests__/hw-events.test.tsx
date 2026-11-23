@@ -10,7 +10,7 @@ import { ANALYTICS_APP, HW_EVENTS_MASK, HW_EVENTS_SHA256, track } from "@/lib/an
 
 const root = resolve(__dirname, "../..");
 const SCRIPT = readFileSync(join(root, "public/hw-events.js"), "utf8");
-const TAG = '<script defer="" src="/hw-events.js" data-app="upvoteme" data-mask="/t/ /a/"></script>';
+const TAG = '<script defer="" src="/hw-events.js" data-app="upvoteme" data-mask="/t/ /a/ /T/ /A/"></script>';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -58,7 +58,7 @@ describe("hw-events.js", () => {
 
   it("uses the app's hintwise.org subdomain as its slug and masks topic and admin codes", () => {
     expect(ANALYTICS_APP).toBe("upvoteme");
-    expect(HW_EVENTS_MASK).toBe("/t/ /a/");
+    expect(HW_EVENTS_MASK).toBe("/t/ /a/ /T/ /A/");
   });
 
   it("sends topic and admin pages as /t/:id and /a/:id, whatever the code looks like", async () => {
@@ -68,6 +68,9 @@ describe("hw-events.js", () => {
       ["/t/abcd12ef", "/t/:id"],
       ["/a/RHxtrCXLGyyrOooh", "/a/:id"],
       ["/a/dVKAtQG1KYYfWxNf", "/a/:id"],
+      // Mistyped upper-case prefixes reach the not-found page, which carries the tag.
+      ["/T/abcdefgh", "/T/:id"],
+      ["/A/RHxtrCXLGyyrOooh", "/A/:id"],
       ["/signin", "/signin"],
       ["/", "/"],
     ]) {
@@ -114,6 +117,13 @@ describe("track", () => {
     expect(() => track("topic_created", { auth_voting: false })).not.toThrow();
     vi.stubGlobal("window", {});
     expect(() => track("topic_created", { auth_voting: false })).not.toThrow();
+  });
+
+  it("never throws, even when the script's track throws or is missing", () => {
+    vi.stubGlobal("window", { hintwise: { track: () => { throw new Error("boom"); } } });
+    expect(() => track("sign_in_started", { method: "google" })).not.toThrow();
+    vi.stubGlobal("window", { hintwise: {} });
+    expect(() => track("sign_in_started", { method: "email" })).not.toThrow();
   });
 
   it("passes the name and props to window.hintwise.track", () => {

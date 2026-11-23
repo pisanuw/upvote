@@ -36,7 +36,11 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
   (with whether voting needs sign-in) and a sign-in started (Google or
   email). Never what a visitor types; nothing is sent under Global Privacy
   Control or Do Not Track. The access code in a topic (`/t/...`) or admin
-  (`/a/...`) address is always sent as `:id`, never the code itself.
+  (`/a/...`) address is always sent as `:id`, never the code itself. The
+  server also keeps a device class (mobile, tablet or desktop) worked out from
+  the browser's user agent, and a visitor id that changes every day: a hash
+  of that day's random salt, the IP network and the user agent. The IP and
+  user agent are not stored, and each salt is deleted when its day is over.
 - Auto-cleanup:
 - topics are deleted after 30 days of inactivity
 - lazy deletion on access

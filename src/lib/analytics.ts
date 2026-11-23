@@ -17,9 +17,12 @@ export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8
  * Topic (/t/<code>) and admin (/a/<adminCode>) addresses are the access code.
  * The script's id rule misses many of these codes (an all-letter code, or one
  * with a single digit, looks like a word to it), so data-mask makes it send
- * the segment after each prefix as ":id" whatever it looks like.
+ * the segment after each prefix as ":id" whatever it looks like. The script
+ * matches prefixes as written, so the upper-case forms are listed too: a
+ * mistyped /T/<code> or /A/<code> reaches the not-found page, which carries
+ * the tag like every page.
  */
-export const HW_EVENTS_MASK = "/t/ /a/";
+export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/";
 
 type Props = Record<string, string | number | boolean>;
 
@@ -29,8 +32,15 @@ declare global {
   }
 }
 
-/** An app event: a lower_snake_case name and short scalar props, never user content or ids. */
+/**
+ * An app event: a lower_snake_case name and short scalar props, never user content or ids.
+ * Never throws: it runs just before sign-in requests and the Google redirect.
+ */
 export function track(name: string, props?: Props): void {
   if (typeof window === "undefined") return;
-  window.hintwise?.track(name, props);
+  try {
+    window.hintwise?.track?.(name, props);
+  } catch {
+    // Counting must never stop the page from working.
+  }
 }
