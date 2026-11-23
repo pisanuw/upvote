@@ -3,6 +3,7 @@ import { IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { NavBar } from "@/components/nav-bar";
 import { SiteFooter } from "@/components/site-footer";
+import { HwEventsScript } from "@/components/hw-events-script";
 
 const monoFont = IBM_Plex_Mono({
   variable: "--font-mono",
@@ -25,6 +26,9 @@ export default function RootLayout({
       lang="en"
       className={`${monoFont.variable} h-full antialiased`}
     >
+      <head>
+        <HwEventsScript />
+      </head>
       <body className="min-h-full flex flex-col">
         <NavBar />
         {children}

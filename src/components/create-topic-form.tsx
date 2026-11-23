@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { track } from "@/lib/analytics";
 
 type CreateResponse = {
   participantUrl: string;
@@ -36,6 +37,7 @@ export function CreateTopicForm({ isSignedIn }: { isSignedIn: boolean }) {
       }
 
       setResult(data);
+      track("topic_created", { auth_voting: requiresAuthForVoting });
     } catch {
       setError("Network error. Please try again.");
     } finally {
