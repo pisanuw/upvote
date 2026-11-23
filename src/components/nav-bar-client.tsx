@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
-import { signIn, signOut } from "next-auth/react";
-import { googleProviderId } from "@/lib/google-sign-in";
+import { signOut } from "next-auth/react";
 import { currentPageCallbackUrl, signInHref } from "@/lib/callback-url";
 import {
   COMPACT_BUTTON_CLASS,
@@ -12,6 +11,7 @@ import {
   SIGN_IN_LINK_CLASS,
 } from "@/components/google-sign-in-button";
 import { EMAIL_INPUT_ID, EnvelopeIcon, focusSignInField } from "@/components/email-sign-in-form";
+import { signInWithGoogle } from "@/components/signin-panel";
 import { Suspense, useEffect, useRef, useState } from "react";
 
 type UserInfo = {
@@ -215,7 +215,7 @@ function SignInButtons({ search }: { search: string }) {
   const callbackUrl = currentPageCallbackUrl(pathname, search);
   return (
     <div className="flex items-center gap-2">
-      <GoogleSignInButton text="Sign in with Google" compact onClick={() => signIn(googleProviderId(), { callbackUrl })} />
+      <GoogleSignInButton text="Sign in with Google" compact onClick={() => signInWithGoogle(callbackUrl)} />
       <Link
         href={emailSignInHref(pathname, search)}
         onClick={onSignInPage ? () => focusSignInField() : undefined}

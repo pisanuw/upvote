@@ -8,8 +8,8 @@ import { GoogleSignInButton, SIGN_IN_LINK_CLASS } from "@/components/google-sign
 import { EmailSignInForm } from "@/components/email-sign-in-form";
 import { track } from "@/lib/analytics";
 
-/** Starts Google sign-in, counted as the app event sign_in_started. */
-function signInWithGoogle(callbackUrl: string) {
+/** Starts Google sign-in from any Google button, counted as the app event sign_in_started. */
+export function signInWithGoogle(callbackUrl: string) {
   track("sign_in_started", { method: "google" });
   void signIn(googleProviderId(), { callbackUrl });
 }
