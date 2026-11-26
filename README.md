@@ -35,12 +35,18 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
   email addresses and long numbers removed), and two counts: a topic created
   (with whether voting needs sign-in) and a sign-in started (Google or
   email). Never what a visitor types; nothing is sent under Global Privacy
-  Control or Do Not Track. The access code in a topic (`/t/...`) or admin
-  (`/a/...`) address is always sent as `:id`, never the code itself. The
+  Control or Do Not Track. On a full page load, `public/hw-loader.js` loads
+  the script only when the address is in its usual form and the page is not
+  the not-found page, and every in-app link is in that form too, so the
+  access code in a topic (`/t/...`) or admin (`/a/...`) address is always
+  sent as `:id`, never the code itself. A not-found page opened directly
+  sends nothing; one reached inside the app, and the admin page's own error
+  message, are counted with the code masked. The
   server also keeps a device class (mobile, tablet or desktop) worked out from
   the browser's user agent, and a visitor id that changes every day: a hash
   of that day's random salt, the IP network and the user agent. The IP and
-  user agent are not stored, and each salt is deleted when its day is over.
+  user agent are not stored, and each day's salt is deleted once HintWise
+  counts the first visit of a later day (UTC).
 - Auto-cleanup:
 - topics are deleted after 30 days of inactivity
 - lazy deletion on access

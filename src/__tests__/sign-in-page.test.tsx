@@ -121,6 +121,17 @@ describe("/signin, signed in", () => {
     },
   );
 
+  it("makes Continue (an in-app move) go to a canonical path", async () => {
+    expect(hrefOf(await renderPage({ callbackUrl: "/a//QqWwEeRrTtYyUuIi" }), "Continue")).toBe("/a/QqWwEeRrTtYyUuIi");
+    expect(hrefOf(await renderPage({ callbackUrl: "/a/QqWwEeRrTtYyUuIi?x#y" }), "Continue")).toBe("/a/QqWwEeRrTtYyUuIi?x#y");
+    expect(hrefOf(await renderPage({ callbackUrl: "/t/abc123" }), "Continue")).toBe("/t/abc123");
+    for (const callbackUrl of ["/%61/QqWwEeRrTtYyUuIi", "/%61//QqWwEeRrTtYyUuIi", "/a./QqWwEeRrTtYyUuIi", "/a%2FQqWwEeRrTtYyUuIi"]) {
+      const html = await renderPage({ callbackUrl });
+      expect(hrefOf(html, "Go to the home page"), callbackUrl).toBe("/");
+      expect(html).not.toContain("QqWwEeRrTtYyUuIi");
+    }
+  });
+
   it("uses the first callbackUrl when there are several", async () => {
     const html = await renderPage({ callbackUrl: ["/t/one", "//evil.example"] });
     expect(hrefOf(html, "Continue")).toBe("/t/one");
@@ -146,6 +157,15 @@ describe("top bar, signed out", () => {
     expect(hrefOf(topBar(), "Email code")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
     expect(emailSignInHref("/t/abc123", "root=c1")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
     expect(emailSignInHref("/..//evil.example", "")).toBe("/signin?callbackUrl=/");
+  });
+
+  it("on a doubled-slash page, returns to the canonical form of it", () => {
+    state.pathname = "/a//QqWwEeRrTtYyUuIi";
+    expect(hrefOf(topBar(), "Email code")).toBe("/signin?callbackUrl=/a/QqWwEeRrTtYyUuIi");
+    state.pathname = "/t//abc123";
+    state.search = "root=c1";
+    expect(hrefOf(topBar(), "Email code")).toBe("/signin?callbackUrl=/t/abc123%3Froot%3Dc1");
+    expect(emailSignInHref("/%61/QqWwEeRrTtYyUuIi", "")).toBe("/signin?callbackUrl=/");
   });
 
   it("keeps the compact look: envelope icon, label hidden on phones, round on small screens", () => {

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { currentPageCallbackUrl, safeCallbackUrl, signInHref } from "@/lib/callback-url";
 
 describe("safeCallbackUrl", () => {
-  it.each(["/", "/t/abc123", "/t/abc123?root=c1", "/a/xyz#comments", "/t/%2F%2Fexample.com"])(
+  it.each(["/", "/t/abc123", "/t/abc123?root=c1", "/a/xyz#comments", "/a/QqWwEeRrTtYyUuIi?x=%2F#y"])(
     "keeps the same-site path %s",
     (path) => {
       expect(safeCallbackUrl(path)).toBe(path);
@@ -33,6 +33,7 @@ describe("safeCallbackUrl", () => {
     ["a segment, dot-dot, then //", "/x/..//evil.example"],
     ["encoded dot-dot then //", "/%2e%2e//evil.example"],
     ["two encoded dot-dots then //", "/x/%2E%2E/%2e%2e//evil.example/path?q=1"],
+    ["an encoded slash", "/t/%2F%2Fexample.com"],
   ])("turns %s into /", (_label, value) => {
     expect(safeCallbackUrl(value)).toBe("/");
   });
@@ -41,6 +42,33 @@ describe("safeCallbackUrl", () => {
     expect(safeCallbackUrl("/x/../t/abc")).toBe("/t/abc");
     expect(safeCallbackUrl("/./t/abc?root=c1#c2")).toBe("/t/abc?root=c1#c2");
     expect(safeCallbackUrl('/t/abc?q="x"')).toBe("/t/abc?q=%22x%22");
+  });
+
+  it.each([
+    ["/a//QqWwEeRrTtYyUuIi", "/a/QqWwEeRrTtYyUuIi"],
+    ["/a///QqWwEeRrTtYyUuIi", "/a/QqWwEeRrTtYyUuIi"],
+    ["/t//QqWwEeRrTtYyUuIi", "/t/QqWwEeRrTtYyUuIi"],
+    ["/a//QqWwEeRrTtYyUuIi?x=1#y", "/a/QqWwEeRrTtYyUuIi?x=1#y"],
+    ["/a/QqWwEeRrTtYyUuIi/", "/a/QqWwEeRrTtYyUuIi"],
+    ["/t/abc123?root=c1", "/t/abc123?root=c1"],
+  ])("returns a canonical path: %s gives %s", (value, want) => {
+    expect(safeCallbackUrl(value)).toBe(want);
+  });
+
+  it.each([
+    "/%61//QqWwEeRrTtYyUuIi",
+    "/%61/QqWwEeRrTtYyUuIi",
+    "/%74/QqWwEeRrTtYyUuIi",
+    "/a%2FQqWwEeRrTtYyUuIi",
+    "/%2561/QqWwEeRrTtYyUuIi",
+    "/a./QqWwEeRrTtYyUuIi",
+    "/a../QqWwEeRrTtYyUuIi",
+    "/a%20/QqWwEeRrTtYyUuIi",
+    "/t/QqWwEeRrTtYyUuIi.",
+    "//a/QqWwEeRrTtYyUuIi",
+    "///a/QqWwEeRrTtYyUuIi",
+  ])("turns the path that cannot be made canonical %s into /", (value) => {
+    expect(safeCallbackUrl(value)).toBe("/");
   });
 
   it.each([undefined, null, 42, ["/t/abc"], { href: "/t/abc" }])("turns a non-string (%j) into /", (value) => {
@@ -60,6 +88,13 @@ describe("currentPageCallbackUrl", () => {
     expect(currentPageCallbackUrl("/signin", "callbackUrl=%2Ft%2Fx%3Froot%3Dc1")).toBe("/t/x?root=c1");
     expect(currentPageCallbackUrl("/signin", "callbackUrl=//evil.example")).toBe("/");
     expect(currentPageCallbackUrl("/signin", "error=Verification")).toBe("/");
+    expect(currentPageCallbackUrl("/signin", "callbackUrl=/a//QqWwEeRrTtYyUuIi")).toBe("/a/QqWwEeRrTtYyUuIi");
+  });
+
+  it("on a doubled-slash page, returns to the canonical form of it", () => {
+    expect(currentPageCallbackUrl("/a//QqWwEeRrTtYyUuIi", "")).toBe("/a/QqWwEeRrTtYyUuIi");
+    expect(currentPageCallbackUrl("/t//abc123", "root=c1")).toBe("/t/abc123?root=c1");
+    expect(currentPageCallbackUrl("/%61/QqWwEeRrTtYyUuIi", "")).toBe("/");
   });
 
   it("runs the result through safeCallbackUrl", () => {
