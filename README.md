@@ -35,8 +35,10 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
   email addresses and long numbers removed), and two counts: a topic created
   (with whether voting needs sign-in) and a sign-in started (Google or
   email). Never what a visitor types; nothing is sent under Global Privacy
-  Control or Do Not Track. The access code in a topic (`/t/...`) or admin
-  (`/a/...`) address is always sent as `:id`, never the code itself. The
+  Control or Do Not Track. `public/hw-loader.js` loads the script only when
+  the address is in its usual form and the page is not the not-found page,
+  so the access code in a topic (`/t/...`) or admin (`/a/...`) address is
+  always sent as `:id`, never the code itself. The
   server also keeps a device class (mobile, tablet or desktop) worked out from
   the browser's user agent, and a visitor id that changes every day: a hash
   of that day's random salt, the IP network and the user agent. The IP and

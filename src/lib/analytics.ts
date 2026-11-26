@@ -8,8 +8,13 @@
  * path (ids masked), how long it was open, the host of a link followed out,
  * and the events sent with track() below. It sends nothing under Global
  * Privacy Control, Do Not Track or an automated browser.
+ *
+ * The page does not load it directly: public/hw-loader.js (UpvoteMe's own)
+ * inserts it, with the same data-app and data-mask, only on a canonical path
+ * and never on the not-found page.
  */
 export const ANALYTICS_APP = "upvoteme";
+export const HW_LOADER_SRC = "/hw-loader.js";
 export const HW_EVENTS_SRC = "/hw-events.js";
 export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8e55ad32b907f00633";
 
@@ -18,15 +23,11 @@ export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8
  * The script's id rule misses many of these codes (an all-letter code, or one
  * with a single digit, looks like a word to it), so data-mask makes it send
  * the segment after each prefix as ":id" whatever it looks like. The script
- * matches prefixes as written, so the upper-case forms are listed too: a
- * mistyped /T/<code> or /A/<code> reaches the not-found page, which carries
- * the tag like every page. So do the percent-encoded forms of all four
- * (/%74/, /%61/, /%54/, /%41/): a hand-crafted /%61/<code> also reaches the
- * not-found page, and location.pathname keeps the encoded prefix, so without
- * them the code would be sent as it is. Each letter has exactly one encoded
- * form (its hex digits are all numbers).
+ * matches prefixes as written; the loader makes sure the path it reads is in
+ * its canonical form. The upper-case forms are a second guard: no page answers
+ * /T/ or /A/ (they get the not-found page, which loads no script).
  */
-export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/ /%74/ /%61/ /%54/ /%41/";
+export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/";
 
 type Props = Record<string, string | number | boolean>;
 
