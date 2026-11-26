@@ -20,9 +20,13 @@ export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8
  * the segment after each prefix as ":id" whatever it looks like. The script
  * matches prefixes as written, so the upper-case forms are listed too: a
  * mistyped /T/<code> or /A/<code> reaches the not-found page, which carries
- * the tag like every page.
+ * the tag like every page. So do the percent-encoded forms of all four
+ * (/%74/, /%61/, /%54/, /%41/): a hand-crafted /%61/<code> also reaches the
+ * not-found page, and location.pathname keeps the encoded prefix, so without
+ * them the code would be sent as it is. Each letter has exactly one encoded
+ * form (its hex digits are all numbers).
  */
-export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/";
+export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/ /%74/ /%61/ /%54/ /%41/";
 
 type Props = Record<string, string | number | boolean>;
 

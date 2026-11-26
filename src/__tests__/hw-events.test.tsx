@@ -10,7 +10,8 @@ import { ANALYTICS_APP, HW_EVENTS_MASK, HW_EVENTS_SHA256, track } from "@/lib/an
 
 const root = resolve(__dirname, "../..");
 const SCRIPT = readFileSync(join(root, "public/hw-events.js"), "utf8");
-const TAG = '<script defer="" src="/hw-events.js" data-app="upvoteme" data-mask="/t/ /a/ /T/ /A/"></script>';
+const TAG =
+  '<script defer="" src="/hw-events.js" data-app="upvoteme" data-mask="/t/ /a/ /T/ /A/ /%74/ /%61/ /%54/ /%41/"></script>';
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -58,7 +59,7 @@ describe("hw-events.js", () => {
 
   it("uses the app's hintwise.org subdomain as its slug and masks topic and admin codes", () => {
     expect(ANALYTICS_APP).toBe("upvoteme");
-    expect(HW_EVENTS_MASK).toBe("/t/ /a/ /T/ /A/");
+    expect(HW_EVENTS_MASK).toBe("/t/ /a/ /T/ /A/ /%74/ /%61/ /%54/ /%41/");
   });
 
   it("sends topic and admin pages as /t/:id and /a/:id, whatever the code looks like", async () => {
@@ -71,12 +72,51 @@ describe("hw-events.js", () => {
       // Mistyped upper-case prefixes reach the not-found page, which carries the tag.
       ["/T/abcdefgh", "/T/:id"],
       ["/A/RHxtrCXLGyyrOooh", "/A/:id"],
+      ["/t/x", "/t/:id"],
+      ["/a/x", "/a/:id"],
       ["/signin", "/signin"],
       ["/", "/"],
     ]) {
       const bodies = await beaconsFor(path, attrs);
       expect(bodies).toEqual([{ a: "upvoteme", e: [{ n: "pageview", p: want }] }]);
     }
+  });
+
+  it("masks hand-crafted links whose first segment is percent-encoded (they reach the not-found page)", async () => {
+    const attrs = { "data-app": ANALYTICS_APP, "data-mask": HW_EVENTS_MASK };
+    for (const [href, want] of [
+      ["/%74/x", "/%74/:id"],
+      ["/%61/x", "/%61/:id"],
+      ["/%54/x", "/%54/:id"],
+      ["/%41/x", "/%41/:id"],
+      ["/%74/abcdefgh", "/%74/:id"],
+      ["/%61/RHxtrCXLGyyrOooh?x=1#y", "/%61/:id"],
+      ["/%54/abcdefgh", "/%54/:id"],
+      ["/%41/dVKAtQG1KYYfWxNf", "/%41/:id"],
+    ]) {
+      // A browser keeps the encoded prefix in location.pathname (WHATWG URL).
+      const { pathname } = new URL(href, "https://upvoteme.hintwise.org");
+      expect(pathname.startsWith(href.slice(0, 5))).toBe(true);
+      const bodies = await beaconsFor(pathname, attrs);
+      expect(bodies).toEqual([{ a: "upvoteme", e: [{ n: "pageview", p: want }] }]);
+    }
+  });
+
+  it("lists the one percent-encoded form of every masked prefix", () => {
+    const masks = HW_EVENTS_MASK.split(" ");
+    for (const letter of ["t", "a", "T", "A"]) {
+      const hex = letter.charCodeAt(0).toString(16);
+      expect(hex).toMatch(/^\d+$/); // no a-f digits, so no upper/lower-case hex variants
+      expect(masks).toContain(`/${letter}/`);
+      expect(masks).toContain(`/%${hex}/`);
+      expect(decodeURIComponent(`%${hex}`)).toBe(letter);
+    }
+    expect(masks).toHaveLength(8);
+  });
+
+  it("would send an encoded-prefix code as it is with only the plain prefixes", async () => {
+    const bodies = await beaconsFor("/%61/RHxtrCXLGyyrOooh", { "data-app": ANALYTICS_APP, "data-mask": "/t/ /a/ /T/ /A/" });
+    expect(bodies[0].e[0].p).toBe("/%61/RHxtrCXLGyyrOooh");
   });
 
   it("would send these codes as they are without data-mask", async () => {

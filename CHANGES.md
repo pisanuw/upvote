@@ -61,3 +61,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-20 [code] The new-comment email goes to ADMIN_EMAIL (falls back to AUTH_SMTP_FROM), so the sender can become a no-reply @hintwise.org address; notifyTopicOwner renamed notifySiteOwner.
 2026-11-20 [code] netlify.toml skips AUTH_SMTP_USER in the secret scan: the SMTP user name is an ordinary word the sign-in code uses, and it stopped the deploy preview of #8.
 2026-11-23 [code] Analytics brought onto main (sign-in page and code): sign_in_started from every Google button and the email code form; README lists everything the script sends.
+2026-11-26 [code] Analytics mask also lists the percent-encoded prefixes /%74/ /%61/ /%54/ /%41/: a hand-crafted /%61/<code> reaches the not-found page with the tag, and location.pathname keeps the encoded prefix, so the code could be sent as it is. hw-events.js unchanged.
