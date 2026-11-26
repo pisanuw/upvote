@@ -65,3 +65,4 @@ Format: `YYYY-MM-DD [type] description` (max 200 chars). Types: decision, plan, 
 2026-11-26 [code] effect 3.20.0 to 3.22.5 by an npm override (GHSA-7589-6fvf-x4pw, via prisma 7.10.1 > @prisma/config, which pins 3.20.0); npm audit --omit=dev 3 high to 0.
 2026-11-26 [doc] README: a visitor-id salt is deleted once the first visit of a later UTC day is counted, not when its day is over.
 2026-11-26 [code] Analytics: load the tag only on canonical paths and never on the not-found page (public/hw-loader.js); the encoded mask entries are dropped again.
+2026-11-26 [code] Analytics: in-app targets are canonical too (safeCallbackUrl collapses //, else /; one rule in src/lib/canonical-path.ts, checked against the loader).

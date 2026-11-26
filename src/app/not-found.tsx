@@ -3,9 +3,11 @@ import Link from "next/link";
 /**
  * The not-found page, for unknown addresses and for notFound() in a page.
  * data-hw-not-found tells public/hw-loader.js not to load the analytics
- * script here: like every HintWise app, UpvoteMe does not count error pages.
- * (A visit that starts here is not counted when it moves on in the app either;
- * a page loaded in full is.)
+ * script when this page is opened directly, so whatever address was typed is
+ * not sent. The marker is read only on a full page load: reached by an in-app
+ * move, after the script has loaded, this page is counted with the path
+ * masked. A visit that starts here is not counted when it moves on in the app
+ * either; a page loaded in full is.
  */
 export default function NotFound() {
   return (

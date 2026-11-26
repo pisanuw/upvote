@@ -8,6 +8,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { HwEventsScript } from "@/components/hw-events-script";
 import NotFound from "@/app/not-found";
 import { ANALYTICS_APP, HW_EVENTS_MASK, HW_EVENTS_SHA256, HW_EVENTS_SRC, track } from "@/lib/analytics";
+import { isCanonicalPath } from "@/lib/canonical-path";
+import { safeCallbackUrl } from "@/lib/callback-url";
 
 const root = resolve(__dirname, "../..");
 const SCRIPT = readFileSync(join(root, "public/hw-events.js"), "utf8");
@@ -15,6 +17,48 @@ const LOADER = readFileSync(join(root, "public/hw-loader.js"), "utf8");
 const TAG = '<script defer="" src="/hw-loader.js" data-app="upvoteme" data-mask="/t/ /a/ /T/ /A/"></script>';
 const ORIGIN = "https://upvoteme.hintwise.org";
 const CODE = "QqWwEeRrTtYyUuIi"; // all letters: the script's id rule alone would send it
+
+/** Addresses, as typed, whose path is canonical, and what the page sends for each. */
+const CANONICAL: [string, string][] = [
+  ["/", "/"],
+  ["/signin", "/signin"],
+  ["/signin?callbackUrl=%2Ft%2Fabcd12ef", "/signin"],
+  ["/superadmin", "/superadmin"],
+  ["/t/abcd12ef", "/t/:id"],
+  ["/t/qwertyui", "/t/:id"],
+  [`/a/${CODE}`, "/a/:id"],
+  [`/a/${CODE}?x#y`, "/a/:id"],
+  [`/a/./${CODE}`, "/a/:id"], // the browser removes the dot segment itself
+];
+
+/** Addresses, as typed, whose path is not canonical. */
+const NOT_CANONICAL = [
+  `//a/${CODE}`,
+  `///a/${CODE}`,
+  `/a//${CODE}`,
+  `/a///${CODE}`,
+  `/%61//${CODE}`,
+  `/%61/${CODE}`,
+  `/%74/${CODE}`,
+  `/%54/${CODE}`,
+  `/%41/${CODE}`,
+  `/a%2F${CODE}`,
+  `/a%2f${CODE}`,
+  `/%61%2F${CODE}`,
+  `/%2561/${CODE}`,
+  `/a./${CODE}`,
+  `/a../${CODE}`,
+  `/a%20/${CODE}`,
+  `//t/${CODE}`,
+  `/t//${CODE}`,
+  `/t/${CODE}.`,
+  `/t/${CODE}/`,
+  `/a/${CODE}/`,
+  `/a//${CODE}?x#y`,
+];
+
+/** location.pathname for an address typed on this site. */
+const pathnameOf = (path: string) => new URL(ORIGIN + path).pathname;
 
 function sourceFiles(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -127,17 +171,7 @@ describe("hw-events.js", () => {
 
 describe("hw-loader.js", () => {
   it("loads the script, with the tag's data-app and data-mask, on canonical paths, and codes go out as :id", async () => {
-    for (const [path, want] of [
-      ["/", "/"],
-      ["/signin", "/signin"],
-      ["/signin?callbackUrl=%2Ft%2Fabcd12ef", "/signin"],
-      ["/superadmin", "/superadmin"],
-      ["/t/abcd12ef", "/t/:id"],
-      ["/t/qwertyui", "/t/:id"],
-      [`/a/${CODE}`, "/a/:id"],
-      [`/a/${CODE}?x#y`, "/a/:id"],
-      [`/a/./${CODE}`, "/a/:id"], // the browser removes the dot segment itself
-    ]) {
+    for (const [path, want] of CANONICAL) {
       expect(await pageSends(path), path).toEqual([{ a: "upvoteme", e: [{ n: "pageview", p: want }] }]);
     }
     const [el] = loaderInserts("/t/abcd12ef");
@@ -145,31 +179,8 @@ describe("hw-loader.js", () => {
   });
 
   it("loads nothing on a path that is not canonical", async () => {
-    for (const path of [
-      `//a/${CODE}`,
-      `///a/${CODE}`,
-      `/a//${CODE}`,
-      `/a///${CODE}`,
-      `/%61//${CODE}`,
-      `/%61/${CODE}`,
-      `/%74/${CODE}`,
-      `/%54/${CODE}`,
-      `/%41/${CODE}`,
-      `/a%2F${CODE}`,
-      `/a%2f${CODE}`,
-      `/%61%2F${CODE}`,
-      `/%2561/${CODE}`,
-      `/a./${CODE}`,
-      `/a../${CODE}`,
-      `/a%20/${CODE}`,
-      `//t/${CODE}`,
-      `/t//${CODE}`,
-      `/t/${CODE}.`,
-      `/t/${CODE}/`,
-      `/a/${CODE}/`,
-    ]) {
-      const { pathname } = new URL(ORIGIN + path);
-      expect(loaderInserts(pathname), path).toEqual([]);
+    for (const path of NOT_CANONICAL) {
+      expect(loaderInserts(pathnameOf(path)), path).toEqual([]);
       expect(await pageSends(path), path).toEqual([]);
     }
   });
@@ -178,6 +189,30 @@ describe("hw-loader.js", () => {
     for (const path of ["/", "/t/abcd12ef", `/a/${CODE}`, `/zz/${CODE}`, `/A/${CODE}`, `/T/${CODE}`]) {
       expect(await pageSends(path, { notFound: true }), path).toEqual([]);
     }
+  });
+
+  it("applies the same rule as isCanonicalPath, which the app uses for in-app targets", () => {
+    const table = [
+      ...CANONICAL.map(([p]) => pathnameOf(p)),
+      ...NOT_CANONICAL.map(pathnameOf),
+      ...["", "a", "/a", "/a/b", "/a/b/", "//", "/.", "/..", "/a/.b", "/a/b.c", "/a/;x", "/a%3Bx/b", "/~a/_b-c"],
+    ];
+    for (const pathname of table) {
+      expect(loaderInserts(pathname).length === 1, pathname).toBe(isCanonicalPath(pathname));
+    }
+    expect(table.filter((p) => isCanonicalPath(p)).length).toBeGreaterThan(5);
+    expect(table.filter((p) => !isCanonicalPath(p)).length).toBeGreaterThan(20);
+  });
+
+  it("safeCallbackUrl, the only in-app target taken from input, always gives a path the loader accepts", async () => {
+    for (const path of [...NOT_CANONICAL, ...CANONICAL.map(([p]) => p)]) {
+      const target = safeCallbackUrl(path);
+      expect(loaderInserts(pathnameOf(target)), `${path} -> ${target}`).toHaveLength(1);
+      for (const body of await pageSends(target)) {
+        for (const e of body.e) expect(e.p, `${path} -> ${target}`).not.toContain(CODE);
+      }
+    }
+    expect(safeCallbackUrl(`/a//${CODE}`)).toBe(`/a/${CODE}`);
   });
 
   it("does nothing without document.currentScript", () => {
@@ -192,7 +227,6 @@ describe("not-found page", () => {
   it("carries the marker that keeps the loader from loading the script", () => {
     const html = renderToStaticMarkup(createElement(NotFound));
     expect(html).toMatch(/^<main data-hw-not-found=""/);
-    expect(LOADER).toContain("document.querySelector('[data-hw-not-found]')");
   });
 });
 
@@ -214,12 +248,25 @@ describe("HwEventsScript", () => {
     const adminLayout = readFileSync(join(root, "src/app/a/[adminCode]/layout.tsx"), "utf8");
     expect(adminLayout).toContain("<>{children}</>");
 
-    const users = sourceFiles(join(root, "src")).filter((f) => /hw-events\.js|<HwEventsScript/.test(readFileSync(f, "utf8")));
+    const named = /hw-(events|loader)\.js|HW_(EVENTS|LOADER)_SRC|<HwEventsScript/;
+    const users = sourceFiles(join(root, "src")).filter((f) => named.test(readFileSync(f, "utf8")));
     expect(users.map((f) => f.slice(root.length + 1)).sort()).toEqual([
       "src/app/layout.tsx",
+      "src/app/not-found.tsx", // a comment
       "src/components/hw-events-script.tsx",
       "src/lib/analytics.ts",
+      "src/lib/canonical-path.ts", // a comment
     ]);
+    // Only the component renders a <script>, and only it uses the loader's address.
+    const scripts = sourceFiles(join(root, "src")).filter((f) => /<script|HW_LOADER_SRC\b/.test(readFileSync(f, "utf8")));
+    expect(scripts.map((f) => f.slice(root.length + 1)).sort()).toEqual(["src/components/hw-events-script.tsx", "src/lib/analytics.ts"]);
+  });
+
+  it("in public/, only hw-loader.js loads /hw-events.js", () => {
+    const pub = join(root, "public");
+    const files = readdirSync(pub).filter((name) => statSync(join(pub, name)).isFile() && name !== "hw-events.js");
+    const loaders = files.filter((name) => /hw-events\.js/.test(readFileSync(join(pub, name), "utf8")));
+    expect(loaders).toEqual(["hw-loader.js"]);
   });
 });
 

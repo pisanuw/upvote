@@ -10,8 +10,10 @@
  * Privacy Control, Do Not Track or an automated browser.
  *
  * The page does not load it directly: public/hw-loader.js (UpvoteMe's own)
- * inserts it, with the same data-app and data-mask, only on a canonical path
- * and never on the not-found page.
+ * inserts it, with the same data-app and data-mask, on a full page load whose
+ * path is canonical (src/lib/canonical-path.ts) and that is not the not-found
+ * page. The script then counts in-app moves as it finds them, so every in-app
+ * target must be canonical too (route params, fixed paths, safeCallbackUrl).
  */
 export const ANALYTICS_APP = "upvoteme";
 export const HW_LOADER_SRC = "/hw-loader.js";
@@ -23,9 +25,10 @@ export const HW_EVENTS_SHA256 = "d2833162b9f18f9f2fdb36dbd62440c13ee26c6600200d8
  * The script's id rule misses many of these codes (an all-letter code, or one
  * with a single digit, looks like a word to it), so data-mask makes it send
  * the segment after each prefix as ":id" whatever it looks like. The script
- * matches prefixes as written; the loader makes sure the path it reads is in
- * its canonical form. The upper-case forms are a second guard: no page answers
- * /T/ or /A/ (they get the not-found page, which loads no script).
+ * matches prefixes as written, so the path it reads must be canonical (see
+ * above). The upper-case forms are a second guard: no page answers /T/ or /A/
+ * (they get the not-found page, which is counted only when reached by an
+ * in-app move, and then masked).
  */
 export const HW_EVENTS_MASK = "/t/ /a/ /T/ /A/";
 

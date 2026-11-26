@@ -1,3 +1,5 @@
+import { canonicalPath } from "@/lib/canonical-path";
+
 /**
  * Where to send someone after they sign in.
  *
@@ -11,6 +13,12 @@
  * to "//evil.example"). Anything else is "/". The parsed form is returned, not
  * the input, so what is checked is what is used. This prevents an open
  * redirect.
+ *
+ * The path is also made canonical (src/lib/canonical-path.ts): runs of "/"
+ * collapse and a trailing "/" goes, so "/a//<code>" returns to "/a/<code>";
+ * a path still not canonical (a "%", a segment ending in ".") is "/". The
+ * signed-in sign-in page's Continue link moves to this value inside the app,
+ * where the analytics script reads the path again.
  */
 const MAX_LENGTH = 2048;
 const PROBE_ORIGIN = "https://upvoteme.invalid";
@@ -30,9 +38,11 @@ export function safeCallbackUrl(value: unknown): string {
   }
   if (parsed.origin !== PROBE_ORIGIN) return "/";
   if (parsed.pathname.startsWith("//")) return "/";
+  const path = canonicalPath(parsed.pathname);
+  if (path === null) return "/";
   // Back to the sign-in page itself would only loop.
-  if (parsed.pathname.replace(/\/+$/, "") === "/signin") return "/";
-  return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  if (path === "/signin") return "/";
+  return `${path}${parsed.search}${parsed.hash}`;
 }
 
 /**

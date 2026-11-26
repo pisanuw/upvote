@@ -10,8 +10,15 @@
  *   - location.pathname is canonical: "/", or segments that are not empty,
  *     contain no "%" and do not end in "." (so no "//" and no trailing "/").
  * The script's data-mask matches path prefixes as written, so on any other
- * form of an address it could not be relied on. Every address the app links
- * to is canonical. Deferred, so it runs once the whole page has been parsed.
+ * form of an address it could not be relied on.
+ *
+ * The check runs once, on each full page load. After that the script counts
+ * every in-app move as it finds it, so every in-app target must be canonical:
+ * route params, fixed paths, or safeCallbackUrl. canonical() below is the same
+ * rule as isCanonicalPath in src/lib/canonical-path.ts (a test checks that
+ * they agree). Likewise, a not-found page opened directly is not counted; one
+ * reached by an in-app move is, with the path masked.
+ * Deferred, so it runs once the whole page has been parsed.
  */
 (function () {
   'use strict';
