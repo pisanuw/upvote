@@ -40,7 +40,8 @@ Built with Next.js (App Router), Prisma, and Supabase Postgres.
   server also keeps a device class (mobile, tablet or desktop) worked out from
   the browser's user agent, and a visitor id that changes every day: a hash
   of that day's random salt, the IP network and the user agent. The IP and
-  user agent are not stored, and each salt is deleted when its day is over.
+  user agent are not stored, and each day's salt is deleted once HintWise
+  counts the first visit of a later day (UTC).
 - Auto-cleanup:
 - topics are deleted after 30 days of inactivity
 - lazy deletion on access
